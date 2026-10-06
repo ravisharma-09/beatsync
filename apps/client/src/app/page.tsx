@@ -1,5 +1,5 @@
 "use client";
-import { Join } from "@/components/Join";
+import { Home as HomeScreen } from "@/components/simple/Home";
 import { NewSyncer } from "@/components/NewSyncer";
 import { DEMO_ROOM_ID, IS_DEMO_MODE } from "@/lib/demo";
 import { useChatStore } from "@/store/chat";
@@ -25,5 +25,5 @@ export default function Home() {
     return <NewSyncer roomId={DEMO_ROOM_ID} />;
   }
 
-  return <Join />;
+  return <HomeScreen />;
 }

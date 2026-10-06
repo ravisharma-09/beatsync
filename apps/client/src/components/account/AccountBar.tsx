@@ -19,7 +19,7 @@ export const AccountBar = () => {
         <>
           <span className="text-neutral-500 truncate max-w-[10rem]">{user.username}</span>
           <Link href="/library" className="hover:text-white transition-colors">
-            My library
+            My music
           </Link>
           <button
             type="button"

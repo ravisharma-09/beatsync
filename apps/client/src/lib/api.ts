@@ -98,6 +98,19 @@ export async function fetchDefaultAudioSources() {
   }
 }
 
+export interface ServerFeatures {
+  /** Picking a song by name works (the server has a search key set up). */
+  songSearch: boolean;
+  /** Uploading files works (the server has file storage set up). */
+  uploads: boolean;
+}
+
+export async function fetchFeatures(): Promise<ServerFeatures> {
+  const response = await fetch(`${getApiUrl()}/features`);
+  if (!response.ok) return { songSearch: false, uploads: false };
+  return (await response.json()) as ServerFeatures;
+}
+
 export async function fetchActiveRooms() {
   const response = await fetch(`${getApiUrl()}/active-rooms`);
   const data: GetActiveRoomsType = await response.json();

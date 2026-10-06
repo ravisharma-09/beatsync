@@ -375,7 +375,7 @@ export const SyncProgress = ({ isLoading = false, loadingMessage = "Loading..." 
           transition={{ duration: 0.3, delay: 0.1 }}
         >
           <WsStatusDot wsReadyState={wsReadyState} />
-          Beatsync calibrating
+          Syncpo is getting in sync
         </motion.h2>
 
         <motion.p

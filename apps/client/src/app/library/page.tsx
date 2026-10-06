@@ -29,7 +29,7 @@ export default function LibraryPage() {
         <AccountBar />
       </div>
 
-      <h1 className="text-lg font-medium tracking-tight text-white mt-8 mb-5">My library</h1>
+      <h1 className="text-lg font-medium tracking-tight text-white mt-8 mb-5">My music</h1>
 
       <Tabs defaultValue="playlists" className="gap-5">
         <TabsList>

@@ -1,3 +1,5 @@
+> **Syncpo** is a fork of Beatsync that adds accounts, playlists, permanent rooms, a legal music catalog and a simpler screen. See [PROJECT.md](PROJECT.md) for what it solves and what is still open.
+
 # Beatsync
 
 Beatsync is a high-precision web audio player built for multi-device playback. The official app is [beatsync.gg](https://www.beatsync.gg/).

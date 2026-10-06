@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useChatStore } from "@/store/chat";
 import { useGlobalStore } from "@/store/global";
 import { getProbeStats, handleNTPResponse } from "@/utils/ntp";
@@ -145,6 +146,14 @@ export const WS_RESPONSE_REGISTRY: WebsocketResponseRegistry = {
       }
     },
     description: "Music search results",
+  },
+
+  [ServerActionEnum.enum.NOTICE]: {
+    handle: ({ response }) => {
+      if (response.level === "error") toast.error(response.message);
+      else toast.info(response.message);
+    },
+    description: "A short message from the server for this user",
   },
 
   [ServerActionEnum.enum.STREAM_JOB_UPDATE]: {

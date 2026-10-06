@@ -228,7 +228,7 @@ export const handleClose = (ws: ServerWebSocket<WSData>, server: BunServer) => {
     const room = globalManager.getRoom(roomId);
 
     if (room) {
-      room.removeClient(clientId);
+      room.removeClient(clientId, ws);
 
       // Schedule cleanup for rooms with no active connections
       if (!room.hasActiveConnections()) {

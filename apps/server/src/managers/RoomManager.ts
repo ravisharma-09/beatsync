@@ -376,7 +376,13 @@ export class RoomManager {
   /**
    * Remove a client from the room
    */
-  removeClient(clientId: string): void {
+  removeClient(clientId: string, closedWs?: ServerWebSocket<WSData>): void {
+    // A client can reconnect before its old connection finishes closing. The late close
+    // of the old connection must not remove the new one.
+    if (closedWs && this.wsConnections.get(clientId) !== closedWs) {
+      return;
+    }
+
     // Only remove from wsConnections, keep clientData for rejoin scenarios
     this.wsConnections.delete(clientId);
     if (this.demoAudioReadyClients.delete(clientId)) {

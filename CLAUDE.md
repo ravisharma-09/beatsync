@@ -119,6 +119,16 @@ Room search uses the Audius API. Audius allows streaming only, not downloading o
 - `GET /audius/stream/...` (`routes/audiusStream.ts`) answers 302 to the audio on Audius, so each listener's browser fetches it directly. Do not change this to proxy or cache audio.
 - The client also shows matches from the user's own library (`LibrarySearchResults`), added through `POST /rooms/:id/add-tracks`.
 
+### YouTube and Song Search
+
+- A YouTube queue item is the link `/youtube/{videoId}/{title}.video` (`packages/shared/youtube.ts`). It is never fetched. The client marks it `external` and plays it in the embedded player (`apps/client/src/lib/youtubePlayer.ts`): started at the shared moment, then seeked back when it drifts more than 0.5s. The player must stay visible; never extract or hide it.
+- Song search by name runs in the browser against iTunes Search (`lib/songSearch.ts`). `ADD_SONG` asks the server (`lib/songMatch.ts`) for the YouTube video: saved match (30 days) → YouTube Data API within a daily budget → Brave web search. `GET /features` tells the client what the server has set up.
+- `NOTICE` is a server→one-client message shown as a toast.
+
+### Screens
+
+The room and home screens live in `apps/client/src/components/simple/` (`Home`, `SimpleRoom`, `AddMusicSearch`, `RoomParts`). `SimpleRoom` mounts either the computer or the phone layout, never both, so there is exactly one YouTube player and one search box. Older panels under `components/dashboard/` are reused inside it; `DemoDashboard` is only for demo mode. `PROJECT.md` is the plain-language project report: keep it current.
+
 ## Environment Setup
 
 `apps/client/.env`:
@@ -134,6 +144,8 @@ S3_PUBLIC_URL=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
+YOUTUBE_API_KEY=                   # optional: pick chart songs by name (about 100 new songs a day)
+BRAVE_SEARCH_API_KEY=              # optional: fallback when the YouTube search limit is used up
 AUDIUS_API_KEY=                    # bearer token from api.audius.co/plans → Create API Key (free: 10 req/s, 500k/month)
 # Optional
 AUDIUS_APP_NAME=beatsync           # name sent to Audius with each request

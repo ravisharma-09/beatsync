@@ -165,3 +165,20 @@ describe("Permanent rooms", () => {
     ]);
   });
 });
+
+describe("Reconnecting", () => {
+  it("keeps the new connection when the old one closes late", () => {
+    const room = globalManager.getOrCreateRoom("888888");
+    const oldWs = createMockWs({ clientId: "same-client", roomId: "888888" });
+    const newWs = createMockWs({ clientId: "same-client", roomId: "888888" });
+
+    room.addClient(oldWs);
+    room.addClient(newWs);
+    room.removeClient("same-client", oldWs);
+
+    expect(room.hasActiveConnections()).toBe(true);
+
+    room.removeClient("same-client", newWs);
+    expect(room.hasActiveConnections()).toBe(false);
+  });
+});

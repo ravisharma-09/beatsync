@@ -120,5 +120,13 @@ export const addPlaylistToRoom = async (roomId: string, playlistId: string) =>
 export const addTracksToRoom = async (roomId: string, trackIds: string[]) =>
   (await client.post<{ added: number; skipped: number }>(`/rooms/${roomId}/add-tracks`, { trackIds })).data;
 
+export const saveRoomTrack = async (roomId: string, url: string, playlistId?: string) =>
+  (
+    await client.post<{ track: LibraryTrackType; playlistName: string | null }>(`/rooms/${roomId}/save-track`, {
+      url,
+      playlistId,
+    })
+  ).data;
+
 export const saveQueueAsPlaylist = async (roomId: string, name: string) =>
   (await client.post<{ playlist: PlaylistType; failed: number }>(`/rooms/${roomId}/save-queue`, { name })).data;

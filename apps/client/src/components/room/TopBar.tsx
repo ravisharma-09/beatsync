@@ -35,7 +35,7 @@ export const TopBar = ({ roomId }: TopBarProps) => {
             </div>
           )}
           <Link href="/" className="font-medium hover:text-white transition-colors">
-            Beatsync
+            Syncpo
           </Link>
 
           {/* NTP Measurements Indicator */}
