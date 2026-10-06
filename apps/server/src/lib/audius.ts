@@ -142,8 +142,30 @@ export async function resolveStreamUrl(trackId: string): Promise<string> {
   const cached = streamUrlCache.get(trackId);
   if (cached && cached.expiresAt > Date.now()) return cached.url;
 
-  // The stream endpoint answers with a redirect to the audio. Read the target instead of
-  // following it, so the audio itself never passes through this server.
+  // Audius serves audio from many independent nodes and picks one per request. Now and
+  // then a node is down or refuses browser requests, so check the link and ask again
+  // for another node if needed, instead of handing every listener a dead link.
+  let url = "";
+  for (let attempt = 0; attempt < MAX_NODE_ATTEMPTS; attempt++) {
+    url = await requestStreamUrl(trackId);
+    if (await isUsableFromBrowsers(url)) break;
+    console.warn(`Audius node ${new URL(url).host} failed the check for track ${trackId}, trying another`);
+  }
+
+  streamUrlCache.set(trackId, { url, expiresAt: Date.now() + STREAM_URL_TTL_MS });
+  if (streamUrlCache.size > 500) {
+    const now = Date.now();
+    for (const [key, entry] of streamUrlCache) if (entry.expiresAt <= now) streamUrlCache.delete(key);
+  }
+  return url;
+}
+
+const MAX_NODE_ATTEMPTS = 4;
+
+/** Asks Audius where the audio is, without fetching the audio. */
+async function requestStreamUrl(trackId: string): Promise<string> {
+  // With no_redirect Audius answers {"data": "<link>"}. A redirect is handled too (read its
+  // target instead of following it), so the audio itself never passes through this server.
   const response = await fetch(buildUrl(`/tracks/${encodeURIComponent(trackId)}/stream`, { no_redirect: "true" }), {
     headers: headers(),
     redirect: "manual",
@@ -164,14 +186,29 @@ export async function resolveStreamUrl(trackId: string): Promise<string> {
   const isAllowedLink =
     !!url && (url.startsWith("https://") || (API_URL.startsWith("http://") && url.startsWith("http://")));
   if (!url || !isAllowedLink) throw new Error("Audius did not return a stream link");
-
-  streamUrlCache.set(trackId, { url, expiresAt: Date.now() + STREAM_URL_TTL_MS });
-  if (streamUrlCache.size > 500) {
-    const now = Date.now();
-    for (const [key, entry] of streamUrlCache) if (entry.expiresAt <= now) streamUrlCache.delete(key);
-  }
   return url;
 }
+
+/**
+ * True when the node answers and lets web pages read the audio (CORS). Asks for a single
+ * byte only; the track is not downloaded.
+ */
+async function isUsableFromBrowsers(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      headers: { Range: "bytes=0-0", Origin: PROBE_ORIGIN },
+      signal: AbortSignal.timeout(NODE_PROBE_TIMEOUT_MS),
+    });
+    void response.body?.cancel();
+    const allowOrigin = response.headers.get("Access-Control-Allow-Origin");
+    return response.ok && (allowOrigin === "*" || allowOrigin === PROBE_ORIGIN);
+  } catch {
+    return false;
+  }
+}
+
+const NODE_PROBE_TIMEOUT_MS = 4000;
+const PROBE_ORIGIN = process.env.PUBLIC_WEB_ORIGIN ?? "http://localhost:3000";
 
 export const AUDIUS_STREAM_PATH_PREFIX = "/audius/stream/";
 

@@ -13,13 +13,26 @@ mockResponsesWithRealHttp();
 const realFetch = globalThis.fetch;
 let requests: { url: URL; init?: RequestInit }[] = [];
 
+/** Hosts of audio nodes that are down or refuse browsers in the current test. */
+let brokenNodes = new Set<string>();
+
 function stubFetch(respond: (url: URL) => Response) {
   globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
+    // Audio nodes: answer the one-byte check that resolveStreamUrl makes
+    if (url.host.endsWith(".audius.test")) {
+      nodeChecks.push(url.host);
+      return Promise.resolve(
+        brokenNodes.has(url.host)
+          ? new Response("x", { status: 206 }) // reachable, but no CORS header
+          : new Response("x", { status: 206, headers: { "Access-Control-Allow-Origin": "*" } })
+      );
+    }
     requests.push({ url, init });
     return Promise.resolve(respond(url));
   }) as unknown as typeof fetch;
 }
+let nodeChecks: string[] = [];
 
 const audiusTrack = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -32,6 +45,8 @@ const audiusTrack = (id: string, overrides: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   requests = [];
+  nodeChecks = [];
+  brokenNodes = new Set();
 });
 
 afterEach(() => {
@@ -96,6 +111,17 @@ describe("Audius stream links", () => {
     expect(new Set(links)).toEqual(new Set(["https://node.audius.test/b.mp3"]));
     // Two simultaneous first requests may both go out; the third must come from the cache.
     expect(requests.length).toBeLessThanOrEqual(2);
+  });
+
+  it("asks for another node when the first one refuses browsers", async () => {
+    brokenNodes = new Set(["bad.audius.test"]);
+    let call = 0;
+    stubFetch(() =>
+      Response.json({ data: call++ === 0 ? "https://bad.audius.test/c.mp3" : "https://good.audius.test/c.mp3" })
+    );
+
+    expect(await resolveStreamUrl("retry1")).toBe("https://good.audius.test/c.mp3");
+    expect(nodeChecks).toEqual(["bad.audius.test", "good.audius.test"]);
   });
 
   it("redirects the browser to Audius and reports unavailable tracks", async () => {
