@@ -1,3 +1,4 @@
+import { handleAddYouTubeVideo } from "@/websocket/handlers/handleAddYouTubeVideo";
 import { ClientActionEnum } from "@beatsync/shared";
 import { handleAudioSourceLoaded } from "@/websocket/handlers/handleAudioSourceLoaded";
 import { handleDeleteAudioSources } from "@/websocket/handlers/handleDeleteAudioSources";
@@ -106,6 +107,11 @@ export const WS_REGISTRY: WebsocketRegistry = {
   [ClientActionEnum.enum.STREAM_MUSIC]: {
     handle: handleStreamMusic,
     description: "Stream music",
+  },
+
+  [ClientActionEnum.enum.ADD_YOUTUBE_VIDEO]: {
+    handle: handleAddYouTubeVideo,
+    description: "Add a pasted YouTube link to the queue",
   },
 
   [ClientActionEnum.enum.SET_GLOBAL_VOLUME]: {

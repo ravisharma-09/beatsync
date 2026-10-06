@@ -4,8 +4,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
 import { useCanMutate, useGlobalStore } from "@/store/global";
 import { sendWSRequest } from "@/utils/ws";
-import { ClientActionEnum } from "@beatsync/shared";
-import { ArrowDown, Search as SearchIcon, X, ZapIcon } from "lucide-react";
+import { ClientActionEnum, parseYouTubeVideoId } from "@beatsync/shared";
+import { ArrowDown, MonitorPlay, Search as SearchIcon, X, ZapIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
@@ -102,6 +102,16 @@ export function InlineSearch() {
 
     if (!data.query || !data.query.trim()) return;
 
+    // A pasted YouTube link is added to the queue instead of searched for
+    if (parseYouTubeVideoId(data.query)) {
+      sendWSRequest({
+        ws: socket,
+        request: { type: ClientActionEnum.enum.ADD_YOUTUBE_VIDEO, url: data.query.trim() },
+      });
+      handleTrackSelection();
+      return;
+    }
+
     console.log("Sending search request", data.query);
 
     // Reset pagination state for new search and set loading state
@@ -122,6 +132,7 @@ export function InlineSearch() {
 
   // Search as you type: wait for a short pause, then search without needing Enter.
   const librarySearchQuery = watchedQuery ?? "";
+  const isYouTubeLink = parseYouTubeVideoId(librarySearchQuery) !== null;
   const lastAutoSearchedQuery = React.useRef("");
   const onSubmitRef = React.useRef(onSubmit);
   React.useEffect(() => {
@@ -134,6 +145,11 @@ export function InlineSearch() {
       return;
     }
     if (query === lastAutoSearchedQuery.current) return;
+    // Links are not searched: show the "add this video" row and wait for a click or Enter
+    if (parseYouTubeVideoId(query)) {
+      setShowResults(true);
+      return;
+    }
     const timer = setTimeout(() => {
       lastAutoSearchedQuery.current = query;
       onSubmitRef.current({ query });
@@ -322,7 +338,7 @@ export function InlineSearch() {
       {/* Beta Disclaimer */}
       <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-neutral-500 ml-0.5">
         <ZapIcon className="size-3 text-neutral-400 stroke-1" />
-        <span>Searches Audius and your library</span>
+        <span>Searches Audius and your library. Paste a YouTube link to watch together.</span>
       </div>
 
       {/* Search Results Dropdown */}
@@ -357,7 +373,25 @@ export function InlineSearch() {
             >
               {/* Own uploads first: they show even when the catalog has nothing or is unreachable */}
               <LibrarySearchResults query={librarySearchQuery} onTrackSelect={handleTrackSelection} />
-              {isSearching || searchResults ? (
+              {isYouTubeLink ? (
+                <button
+                  type="button"
+                  // Keep focus in the search box so the panel stays open until the click lands
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onSubmit({ query: librarySearchQuery })}
+                  className="m-2 flex w-[calc(100%-1rem)] cursor-pointer items-center gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-neutral-800"
+                >
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded bg-neutral-800 text-neutral-300">
+                    <MonitorPlay className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-white">Add this YouTube video to the queue</span>
+                    <span className="block text-xs text-neutral-400">
+                      Everyone watches it together in the YouTube player. Press Enter or click.
+                    </span>
+                  </span>
+                </button>
+              ) : isSearching || searchResults ? (
                 <SearchResults className="p-2" onTrackSelect={handleTrackSelection} />
               ) : (
                 <div className="p-8 text-center">

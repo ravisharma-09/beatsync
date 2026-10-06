@@ -30,6 +30,7 @@ export const ClientActionEnum = z.enum([
   "DELETE_AUDIO_SOURCES", // Delete audio sources from the room queue (non-default only)
   "SEARCH_MUSIC", // Search for music
   "STREAM_MUSIC", // Stream music
+  "ADD_YOUTUBE_VIDEO", // Add a pasted YouTube link to the queue
   "SET_GLOBAL_VOLUME", // Set global volume for all clients
   "SEND_CHAT_MESSAGE", // Send a chat message,
   "AUDIO_SOURCE_LOADED", // Audio source loaded in response to a LOAD_AUDIO_SOURCE request
@@ -133,6 +134,11 @@ export const StreamMusicSchema = z.object({
   trackName: z.string().max(300).optional(),
 });
 
+export const AddYouTubeVideoSchema = z.object({
+  type: z.literal(ClientActionEnum.enum.ADD_YOUTUBE_VIDEO),
+  url: z.string().max(500),
+});
+
 export const SetGlobalVolumeSchema = z.object({
   type: z.literal(ClientActionEnum.enum.SET_GLOBAL_VOLUME),
   volume: z.number().min(0).max(1), // 0-1 range
@@ -184,6 +190,7 @@ export const WSRequestSchema = z.discriminatedUnion("type", [
   DeleteAudioSourcesSchema,
   SearchMusicSchema,
   StreamMusicSchema,
+  AddYouTubeVideoSchema,
   SetGlobalVolumeSchema,
   SendChatMessageSchema,
   AudioSourceLoadedSchema,

@@ -9,6 +9,7 @@ import { Bottom } from "./Bottom";
 import { Left } from "./Left";
 import { Main } from "./Main";
 import { Right } from "./Right";
+import { YouTubeStage } from "./YouTubeStage";
 
 interface DashboardProps {
   roomId: string;
@@ -118,6 +119,9 @@ export const Dashboard = ({ roomId }: DashboardProps) => {
               </AnimatePresence>
             </Tabs>
           </div>
+
+          {/* One shared video player for both layouts, shown only for YouTube items */}
+          <YouTubeStage />
 
           {/* Bottom Player: Fixed height, outside the scrollable/tab area */}
           <Bottom />

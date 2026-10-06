@@ -4,6 +4,7 @@ import { getClientId } from "@/lib/clientId";
 import { getKickBuffer } from "@/components/dashboard/Metronome";
 import { IS_DEMO_MODE } from "@/lib/demo";
 import { getApiUrl } from "@/lib/urls";
+import { youtubePlayer } from "@/lib/youtubePlayer";
 import { extractFileNameFromUrl } from "@/lib/utils";
 import {
   calculateOffsetEstimate,
@@ -33,6 +34,8 @@ import {
   SetAudioSourcesType,
   SpatialConfigType,
   epochNow,
+  isYouTubeQueueUrl,
+  parseYouTubeQueueUrl,
 } from "@beatsync/shared";
 import { Mutex } from "async-mutex";
 import { toast } from "sonner";
@@ -80,6 +83,11 @@ export const AudioSourceStateSchema = z.discriminatedUnion("status", [
     source: AudioSourceSchema,
     status: z.literal("error"),
     error: z.string(),
+  }),
+  // Played by an embedded player (YouTube) instead of the audio engine: nothing to download
+  z.object({
+    source: AudioSourceSchema,
+    status: z.literal("external"),
   }),
 ]);
 export type AudioSourceState = z.infer<typeof AudioSourceStateSchema>;
@@ -347,6 +355,17 @@ const getWaitTimeSeconds = (state: GlobalState, targetServerTime: number) => {
   return Math.max(0, (waitTimeMilliseconds - outputLatencyMs) / 1000);
 };
 
+/**
+ * Stand-in length for a YouTube video until its player reports the real one, so the
+ * position clock is not clamped to zero in the meantime.
+ */
+const UNKNOWN_YOUTUBE_DURATION_SECONDS = 12 * 60 * 60;
+
+const youtubeDurationFor = (url: string): number => {
+  const video = parseYouTubeQueueUrl(url);
+  return video ? youtubePlayer.getKnownDuration(video.videoId) : 0;
+};
+
 const resolveAudioUrl = (url: string): string => (url.startsWith("/") ? `${getApiUrl()}${url}` : url);
 
 const downloadBufferFromURL = async (data: { url: string; onProgress?: (loaded: number, total: number) => void }) => {
@@ -443,6 +462,21 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
     try {
       const state = get();
       const existing = state.audioSources.find((as) => as.source.url === url);
+
+      // YouTube items have nothing to download: the embedded player streams them itself
+      if (isYouTubeQueueUrl(url)) {
+        set((currentState) => ({
+          audioSources: currentState.audioSources.map((as) =>
+            as.source.url === url ? { source: as.source, status: "external" } : as
+          ),
+        }));
+        const { socket } = getSocket(get());
+        sendWSRequest({
+          ws: socket,
+          request: { type: ClientActionEnum.enum.AUDIO_SOURCE_LOADED, source: { url } },
+        });
+        return;
+      }
 
       // Skip if already loaded or in-flight
       if (existing && existing.status === "loading") {
@@ -552,6 +586,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
     } catch {
       // Ignore if already stopped
     }
+    youtubePlayer.stop();
     console.log(reason);
     set({ isInitingSystem: true, hasUserStartedSystem: false });
   };
@@ -604,6 +639,35 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
 
     console.log("Detected that no audio sources were loaded, initializing");
     initializeAudioExclusively();
+
+    // Connect the embedded YouTube player to the room's clock
+    const isCurrentVideo = (videoId: string) => parseYouTubeQueueUrl(get().selectedAudioUrl)?.videoId === videoId;
+    youtubePlayer.setHooks({
+      getExpectedPosition: (videoId) =>
+        isCurrentVideo(videoId) && get().isPlaying ? get().getCurrentTrackPosition() : null,
+      onDuration: (videoId, seconds) => {
+        if (isCurrentVideo(videoId)) set({ duration: seconds });
+      },
+      onEnded: (videoId) => {
+        const state = get();
+        if (!isCurrentVideo(videoId) || !state.isPlaying) return;
+        if (state.audioSources.length <= 1) {
+          set({ isPlaying: false, currentTime: 0 });
+          return;
+        }
+        set({ currentTime: state.duration });
+        state.skipToNextTrack(true);
+      },
+      onError: (videoId, message) => {
+        if (!isCurrentVideo(videoId)) return;
+        toast.error(message, { id: "youtube-error" });
+        set((state) => ({
+          audioSources: state.audioSources.map((as) =>
+            as.source.url === state.selectedAudioUrl ? { source: as.source, status: "error", error: message } : as
+          ),
+        }));
+      },
+    });
 
     // In demo mode, stop audio when the app is backgrounded (camera, swipe down, etc.)
     // iOS 26 with audioSession "playback" keeps audio alive in background, which causes
@@ -710,9 +774,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         }
       }
 
+      // A video may be on screen; whatever comes next starts from a clean player
+      youtubePlayer.stop();
+
       // Find the new audio source for duration
       const audioIndex = state.findAudioIndexByUrl(url);
-      let newDuration = 0;
+      let newDuration = youtubeDurationFor(url);
       if (audioIndex !== null) {
         const audioSourceState = state.audioSources[audioIndex];
         if (audioSourceState.status === "loaded" && audioSourceState.buffer) {
@@ -752,6 +819,40 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
 
       // Simulate scheduling delay for testing:
       // await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const youtubeVideo = parseYouTubeQueueUrl(data.audioSource);
+      if (youtubeVideo) {
+        if (state.findAudioIndexByUrl(data.audioSource) === null) {
+          console.warn(`Cannot play video: not in the queue: ${data.audioSource}`);
+          return;
+        }
+        // Silence any uploaded or catalog track that is still sounding
+        try {
+          const { sourceNode } = getAudioPlayer(state);
+          sourceNode.onended = null;
+          sourceNode.disconnect();
+          sourceNode.stop();
+        } catch (_) {}
+
+        // The room clock keeps running on the audio clock, exactly as for audio tracks.
+        // The player is started at the shared moment and then held to that clock.
+        const waitSeconds = getWaitTimeSeconds(state, data.targetServerTime);
+        // If the message arrived after the shared start moment, start further into the video
+        const lateBySeconds = Math.max(
+          0,
+          (epochNow() + state.offsetEstimate + state.nudgeOffsetMs - data.targetServerTime) / 1000
+        );
+        set({
+          isPlaying: true,
+          selectedAudioUrl: data.audioSource,
+          playbackStartTime: audioContextManager.getContext().currentTime + waitSeconds,
+          playbackOffset: data.trackTimeSeconds + lateBySeconds,
+          duration: youtubeDurationFor(data.audioSource) || UNKNOWN_YOUTUBE_DURATION_SECONDS,
+        });
+        youtubePlayer.play({ videoId: youtubeVideo.videoId, delayMs: waitSeconds * 1000 });
+        return;
+      }
+      youtubePlayer.stop();
 
       let waitTimeSeconds = getWaitTimeSeconds(state, data.targetServerTime);
       const _olMs = getFilteredOutputLatencyMs();
@@ -1148,6 +1249,10 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         console.error("Track is in idle state");
         return;
       }
+      if (audioSourceState.status === "external") {
+        // Embedded-player items are started by schedulePlay, never through the audio engine
+        return;
+      }
 
       const audioBuffer = audioSourceState.buffer;
       if (!audioBuffer) {
@@ -1250,6 +1355,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
       const { sourceNode, audioContext } = getAudioPlayer(state);
 
       const stopTime = audioContext.currentTime + data.when;
+      if (isYouTubeQueueUrl(state.selectedAudioUrl)) {
+        // Mark the room as paused first: the player checks the room before it pauses
+        set({ isPlaying: false, currentTime: state.playbackOffset + (stopTime - state.playbackStartTime) });
+        youtubePlayer.pause(data.when * 1000);
+        return;
+      }
       sourceNode.stop(stopTime);
 
       // Calculate current position in the track at the time of pausing
@@ -1413,11 +1524,14 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
 
       // Use singleton's setMasterGain with ramping
       audioContextManager.setMasterGain(finalGain, rampTime);
+      // The embedded video player has its own volume; keep it level with the room
+      youtubePlayer.setVolume(finalGain);
     },
 
     getAudioDuration: ({ url }) => {
       const state = get();
       const audioSource = state.audioSources.find((as) => as.source.url === url);
+      if (isYouTubeQueueUrl(url)) return youtubeDurationFor(url);
       if (!audioSource || audioSource.status !== "loaded" || !audioSource.buffer) {
         // Return 0 for loading/error states or not found
         return 0;
@@ -1508,6 +1622,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
     // Reset function to clean up state
     resetStore: () => {
       const state = get();
+      youtubePlayer.stop();
 
       // Stop any playing audio
       if (state.isPlaying && state.audioPlayer) {

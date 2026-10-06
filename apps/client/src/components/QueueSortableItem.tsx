@@ -1,3 +1,4 @@
+import { isYouTubeQueueUrl } from "@beatsync/shared";
 import { cn, extractFileNameFromUrl, formatTime } from "@/lib/utils";
 import { AudioSourceState, useGlobalStore } from "@/store/global";
 import { sendWSRequest } from "@/utils/ws";
@@ -270,7 +271,7 @@ export const QueueSortableItem = ({
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.3, ease: "easeOut" }}
               >
-                --:--
+                {isYouTubeQueueUrl(sourceState.source.url) ? "YouTube" : "--:--"}
               </motion.span>
             )}
           </motion.div>
