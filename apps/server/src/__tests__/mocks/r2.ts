@@ -27,7 +27,28 @@ export function mockR2(overrides: Record<string, ReturnType<typeof mock>> = {}):
       totalRooms: 0,
       totalFiles: 0,
     })),
+
+    // Per-user library storage. The fake bucket is served from https://cdn.test/.
+    validateR2Config: mock(() => ({ isValid: true, errors: [] })),
+    objectExists: mock(() => true),
+    copyObject: mock(() => {
+      /* noop */
+    }),
+    generatePresignedUserUploadUrl: mock(() => "https://upload.test/signed"),
+    createUserKey: mock((userId: string, fileName: string) => `user-${userId}/${fileName}`),
+    isUserKey: mock((key: string, userId: string) => key.startsWith(`user-${userId}/`)),
+    getPublicUrlForKey: mock((key: string) => `https://cdn.test/${key}`),
+    extractOwnKeyFromUrl: mock((url: string) =>
+      url.startsWith("https://cdn.test/") ? decodeURIComponent(url.slice("https://cdn.test/".length)) : null
+    ),
+    titleFromFileName: mock((fileName: string) => fileName.split("___")[0]),
   };
 
-  void mock.module("@/lib/r2", () => ({ ...defaults, ...overrides }));
+  // Start from the real module so exports that are not stubbed here (pure helpers like
+  // createKey) still exist. Without this, whichever test file runs first decides which
+  // exports every later file can import.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- must be synchronous: callers mock before importing
+  const actual = require("@/lib/r2") as Record<string, unknown>;
+
+  void mock.module("@/lib/r2", () => ({ ...actual, ...defaults, ...overrides }));
 }

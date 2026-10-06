@@ -5,7 +5,9 @@ import type { BunServer, WSData } from "@/utils/websocket";
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "*",
-  "Access-Control-Allow-Headers": "*",
+  // The "*" wildcard does not cover Authorization, so it must be listed explicitly.
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
 };
 
 // Helper functions for common responses

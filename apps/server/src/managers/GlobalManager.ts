@@ -1,3 +1,4 @@
+import { getSavedQueue, isPermanentRoom, saveQueue } from "@/db/repo";
 import { AUDIO_FILENAMES, IS_DEMO_MODE } from "@/demo";
 import { RoomManager } from "@/managers/RoomManager";
 import type { DiscoverRoomsType } from "@beatsync/shared";
@@ -32,8 +33,14 @@ export class GlobalManager {
       room = new RoomManager(
         roomId,
         () => this.markActiveUserCountDirty(),
-        () => this.scheduleRoomCleanup(roomId)
+        () => this.scheduleRoomCleanup(roomId),
+        IS_DEMO_MODE ? undefined : (sources) => saveQueue(roomId, sources) // no-op unless the room is permanent
       );
+      // A permanent room that nobody was in: bring back its saved queue.
+      const savedQueue = IS_DEMO_MODE ? null : getSavedQueue(roomId);
+      if (savedQueue) {
+        room.loadSavedQueue(savedQueue);
+      }
       if (IS_DEMO_MODE) {
         for (const filename of AUDIO_FILENAMES) {
           room.addAudioSource({ url: `/audio/${encodeURIComponent(filename)}` });
@@ -177,7 +184,11 @@ export class GlobalManager {
         // Re-check if room still has no active connections when timer fires
         const currentRoom = this.getRoom(roomId);
         if (currentRoom && !currentRoom.hasActiveConnections()) {
-          await currentRoom.cleanup();
+          // Permanent rooms only leave memory: their queue is in the database and their
+          // uploaded files must stay so the room works the next time someone opens it.
+          const keepFiles = !IS_DEMO_MODE && isPermanentRoom(roomId);
+          if (keepFiles) saveQueue(roomId, currentRoom.getAudioSources());
+          await currentRoom.cleanup({ keepFiles });
           this.deleteRoom(roomId);
         } else {
           console.log(`Room ${roomId} has active connections now, skipping cleanup.`);

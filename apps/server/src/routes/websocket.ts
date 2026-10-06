@@ -1,3 +1,5 @@
+import { getUserByToken } from "@/auth";
+import { getRoomOwnerId } from "@/db/repo";
 import { DEMO_ROOM_ID, IS_DEMO_MODE, isValidAdminSecret } from "@/demo";
 import { errorResponse } from "@/utils/responses";
 import type { BunServer, WSData } from "@/utils/websocket";
@@ -35,15 +37,20 @@ export const handleWebSocketUpgrade = (req: Request, server: BunServer) => {
 
   const isCreator = !IS_DEMO_MODE && !!CREATOR_SECRET && creatorSecret === CREATOR_SECRET;
 
-  const tags = [isAdmin && "admin", isCreator && "creator"].filter(Boolean).join(", ");
+  // Logged-in users join under their account name, and always control rooms they own.
+  const user = IS_DEMO_MODE ? null : getUserByToken(url.searchParams.get("token"));
+  const isOwner = !!user && getRoomOwnerId(roomId) === user.id;
+
+  const tags = [isAdmin && "admin", isCreator && "creator", isOwner && "owner"].filter(Boolean).join(", ");
   console.log(`User ${username} joined room ${roomId} with clientId ${clientId}${tags ? ` (${tags})` : ""}`);
 
   const data: WSData = {
     roomId,
-    username: isCreator ? "freemanjiang" : username,
+    username: isCreator ? "freemanjiang" : (user?.username ?? username),
     clientId,
-    isAdmin,
+    isAdmin: isAdmin || isOwner,
     isCreator,
+    userId: user?.id,
   };
 
   // Upgrade the connection with the WSData context

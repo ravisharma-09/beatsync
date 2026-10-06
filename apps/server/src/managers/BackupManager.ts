@@ -1,3 +1,4 @@
+import { getPermanentRoomIds } from "@/db/repo";
 import pLimit from "p-limit";
 import {
   cleanupOrphanedRooms,
@@ -279,7 +280,8 @@ export class BackupManager {
     try {
       console.log("🧹 Cleaning up orphaned rooms...");
 
-      const activeRooms = new Set<string>(globalManager.getRoomIds());
+      // Permanent rooms are usually not in memory, but their uploads must never be deleted.
+      const activeRooms = new Set<string>([...globalManager.getRoomIds(), ...getPermanentRoomIds()]);
       await cleanupOrphanedRooms(activeRooms, true);
     } catch (error) {
       // Don't throw - cleanup failures shouldn't break the restore process

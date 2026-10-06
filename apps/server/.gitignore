@@ -42,4 +42,4 @@ next-env.d.ts
 public/audio
 dist/
 
-demo-audio/
+demo-audio/data/

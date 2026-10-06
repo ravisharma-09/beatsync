@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -607,4 +608,70 @@ export async function cleanupOrphanedRooms(
     console.error("❌ Orphaned room cleanup failed:", error);
     throw error;
   }
+}
+
+// ── Per-user library storage ────────────────────────────────────────────────
+// Library files live under `user-{userId}/`, outside every `room-{roomId}/` prefix,
+// so room cleanup and orphan cleanup never touch them.
+
+export function createUserKey(userId: string, fileName: string): string {
+  return `user-${userId}/${fileName}`;
+}
+
+export function isUserKey(key: string, userId: string): boolean {
+  return key.startsWith(`user-${userId}/`);
+}
+
+/** Public URL for any storage key, encoding each path segment. */
+export function getPublicUrlForKey(key: string): string {
+  return `${S3_CONFIG.PUBLIC_URL}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/** The storage key if this URL points into our bucket's public URL, else null. */
+export function extractOwnKeyFromUrl(url: string): string | null {
+  if (!S3_CONFIG.PUBLIC_URL || !url.startsWith(`${S3_CONFIG.PUBLIC_URL}/`)) return null;
+  return extractKeyFromUrl(url);
+}
+
+export async function generatePresignedUserUploadUrl(
+  userId: string,
+  fileName: string,
+  contentType: string,
+  expiresIn = 3600
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: S3_CONFIG.BUCKET_NAME,
+    Key: createUserKey(userId, fileName),
+    ContentType: contentType,
+  });
+  return await getSignedUrl(r2Client, command, { expiresIn });
+}
+
+export async function objectExists(key: string): Promise<boolean> {
+  try {
+    await r2Client.send(new HeadObjectCommand({ Bucket: S3_CONFIG.BUCKET_NAME, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+  await r2Client.send(
+    new CopyObjectCommand({
+      Bucket: S3_CONFIG.BUCKET_NAME,
+      // CopySource must be URL-encoded; keep the slashes between path segments.
+      CopySource: `${S3_CONFIG.BUCKET_NAME}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`,
+      Key: destinationKey,
+    })
+  );
+}
+
+/** Human-readable title from a stored file name ("My Song___2026-01-01.mp3" becomes "My Song"). */
+export function titleFromFileName(fileName: string): string {
+  const withoutTimestamp = fileName.split(R2_AUDIO_FILE_NAME_DELIMITER)[0];
+  const withoutExtension = fileName.includes(R2_AUDIO_FILE_NAME_DELIMITER)
+    ? withoutTimestamp
+    : withoutTimestamp.replace(/\.[^/.]+$/, "");
+  return withoutExtension || "Untitled";
 }

@@ -134,7 +134,8 @@ export class RoomManager {
   constructor(
     private readonly roomId: string,
     onClientCountChange?: () => void, // To update the global # of clients active
-    onBecameEmpty?: () => void // To schedule room cleanup when the reaper removes the last client
+    onBecameEmpty?: () => void, // To schedule room cleanup when the reaper removes the last client
+    private readonly onQueueChange?: (sources: AudioSourceType[]) => void // To persist the queue of permanent rooms
   ) {
     this.onClientCountChange = onClientCountChange;
     this.onBecameEmpty = onBecameEmpty;
@@ -443,13 +444,28 @@ export class RoomManager {
    */
   addAudioSource(source: AudioSourceType): AudioSourceType[] {
     this.audioSources.push(source);
+    this.onQueueChange?.(this.audioSources);
     return this.audioSources;
   }
 
   // Set all audio sources (used in backup restoration)
   setAudioSources(sources: AudioSourceType[]): AudioSourceType[] {
     this.audioSources = sources;
+    this.onQueueChange?.(this.audioSources);
     return this.audioSources;
+  }
+
+  /** Load a saved queue without triggering a save back (used when reopening a permanent room). */
+  loadSavedQueue(sources: AudioSourceType[]): void {
+    this.audioSources = sources;
+  }
+
+  /** The connected client that belongs to this logged-in user, if they are in the room right now. */
+  getConnectedClientForUser(userId: string): ClientDataType | undefined {
+    for (const [clientId, ws] of this.wsConnections) {
+      if (ws.data.userId === userId) return this.clientData.get(clientId);
+    }
+    return undefined;
   }
 
   removeAudioSources(urls: string[]): {
@@ -476,6 +492,7 @@ export class RoomManager {
     const after = this.audioSources.length;
     if (before !== after) {
       console.log(`Removed ${before - after} sources from room ${this.roomId}: `);
+      this.onQueueChange?.(this.audioSources);
     }
     return {
       updated: this.audioSources,
@@ -1042,14 +1059,14 @@ export class RoomManager {
   /**
    * Clean up room resources (e.g., R2 storage)
    */
-  async cleanup(): Promise<void> {
+  async cleanup(options: { keepFiles?: boolean } = {}): Promise<void> {
     console.log(`🧹 Starting room cleanup for room ${this.roomId}...`);
 
     // Stop any running intervals
     this.stopSpatialAudio();
     this.stopHeartbeatChecking();
 
-    if (!IS_DEMO_MODE) {
+    if (!IS_DEMO_MODE && !options.keepFiles) {
       try {
         const result = await deleteObjectsWithPrefix(`room-${this.roomId}`);
         console.log(`✅ Room ${this.roomId} objects deleted: ${result.deletedCount}`);
@@ -1200,5 +1217,6 @@ export class RoomManager {
     }
 
     this.audioSources = newOrder;
+    this.onQueueChange?.(this.audioSources);
   }
 }

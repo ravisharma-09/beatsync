@@ -1,5 +1,6 @@
 import type { OrphanCleanupResult } from "@/lib/r2";
 import { cleanupOrphanedRooms } from "@/lib/r2";
+import { getPermanentRoomIds } from "@/db/repo";
 import { globalManager } from "@/managers";
 import { errorResponse, jsonResponse } from "@/utils/responses";
 
@@ -18,7 +19,8 @@ export async function handleCleanup(req: Request) {
     console.log(`Mode: ${isLive ? "LIVE (will delete files)" : "DRY RUN (no deletions)"}\n`);
 
     // Get active rooms from server
-    const activeRooms = new Set<string>();
+    // Permanent rooms are usually not in memory, but their uploads must never be deleted.
+    const activeRooms = new Set<string>(getPermanentRoomIds());
     globalManager.forEachRoom((room, roomId) => {
       activeRooms.add(roomId);
     });

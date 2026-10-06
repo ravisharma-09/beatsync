@@ -1,5 +1,7 @@
 import { ADMIN_SECRET, IS_DEMO_MODE } from "@/demo";
 import { BackupManager } from "@/managers/BackupManager";
+import { deleteExpiredSessions } from "@/auth";
+import { handleAccountRoutes } from "@/routes/account";
 import { getActiveRooms } from "@/routes/active";
 import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
@@ -29,8 +31,13 @@ const server = Bun.serve<WSData>({
     let response: Response;
 
     try {
+      // Accounts, library, playlists and permanent rooms (not available in demo mode)
+      const accountResponse = IS_DEMO_MODE ? null : await handleAccountRoutes(req, url, server);
+
       // Demo mode: serve local audio files
-      if (IS_DEMO_MODE && url.pathname.startsWith("/audio/")) {
+      if (accountResponse) {
+        response = accountResponse;
+      } else if (IS_DEMO_MODE && url.pathname.startsWith("/audio/")) {
         response = handleServeAudio(url.pathname);
       } else {
         switch (url.pathname) {
@@ -133,6 +140,10 @@ if (!IS_DEMO_MODE) {
     });
   }, BACKUP_INTERVAL_MS);
 }
+
+// Expired login sessions are never matched, this just keeps the table small
+deleteExpiredSessions();
+setInterval(deleteExpiredSessions, 1000 * 60 * 60);
 
 // Simple graceful shutdown
 const shutdown = async () => {
