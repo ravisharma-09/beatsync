@@ -9,7 +9,7 @@ import { handleAudiusStream } from "@/routes/audiusStream";
 import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
 import { handleDiscover } from "@/routes/discover";
-import { handleHealth } from "@/routes/health";
+import { handleFeatures, handleHealth } from "@/routes/health";
 import { handleRoot } from "@/routes/root";
 import { handleStats } from "@/routes/stats";
 import { handleGetPresignedURL, handleUploadComplete } from "@/routes/upload";
@@ -83,6 +83,10 @@ const server = Bun.serve<WSData>({
 
           case "/discover":
             response = handleDiscover(req);
+            break;
+
+          case "/features":
+            response = handleFeatures();
             break;
 
           case "/health":

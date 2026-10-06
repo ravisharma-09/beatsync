@@ -129,6 +129,13 @@ export const AddTracksToRoomSchema = z.object({
 });
 export type AddTracksToRoomType = z.infer<typeof AddTracksToRoomSchema>;
 
+/** Save one item of a live room's queue to the caller's library, and optionally into a playlist. */
+export const SaveRoomTrackSchema = z.object({
+  url: z.string().min(1).max(2000),
+  playlistId: z.string().optional(),
+});
+export type SaveRoomTrackType = z.infer<typeof SaveRoomTrackSchema>;
+
 /** Save a live room's queue as a new playlist in the caller's library. */
 export const SaveQueueSchema = z.object({
   name: z.string().trim().min(1).max(PLAYLIST_NAME_MAX_LENGTH),

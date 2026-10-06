@@ -31,6 +31,7 @@ export const ClientActionEnum = z.enum([
   "SEARCH_MUSIC", // Search for music
   "STREAM_MUSIC", // Stream music
   "ADD_YOUTUBE_VIDEO", // Add a pasted YouTube link to the queue
+  "ADD_SONG", // Add a song picked from name search; the server finds a video for it
   "SET_GLOBAL_VOLUME", // Set global volume for all clients
   "SEND_CHAT_MESSAGE", // Send a chat message,
   "AUDIO_SOURCE_LOADED", // Audio source loaded in response to a LOAD_AUDIO_SOURCE request
@@ -139,6 +140,12 @@ export const AddYouTubeVideoSchema = z.object({
   url: z.string().max(500),
 });
 
+export const AddSongSchema = z.object({
+  type: z.literal(ClientActionEnum.enum.ADD_SONG),
+  title: z.string().trim().min(1).max(200),
+  artist: z.string().trim().max(200),
+});
+
 export const SetGlobalVolumeSchema = z.object({
   type: z.literal(ClientActionEnum.enum.SET_GLOBAL_VOLUME),
   volume: z.number().min(0).max(1), // 0-1 range
@@ -191,6 +198,7 @@ export const WSRequestSchema = z.discriminatedUnion("type", [
   SearchMusicSchema,
   StreamMusicSchema,
   AddYouTubeVideoSchema,
+  AddSongSchema,
   SetGlobalVolumeSchema,
   SendChatMessageSchema,
   AudioSourceLoadedSchema,

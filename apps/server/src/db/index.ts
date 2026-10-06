@@ -81,6 +81,24 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX rooms_owner_id ON rooms(owner_id, created_at);
   `,
+  `
+  -- Which YouTube video plays a given song ("artist|title", normalised). Looked up once
+  -- through YouTube's search and reused, because that search has a small daily limit.
+  CREATE TABLE youtube_matches (
+    song_key    TEXT PRIMARY KEY,
+    video_id    TEXT NOT NULL,
+    video_title TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+  );
+
+  -- Per-day usage counters, e.g. how many YouTube searches were spent today.
+  CREATE TABLE daily_counters (
+    day   TEXT NOT NULL,
+    name  TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, name)
+  );
+  `,
 ];
 
 function migrate() {

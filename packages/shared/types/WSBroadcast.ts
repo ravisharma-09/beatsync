@@ -13,6 +13,7 @@ export const ServerActionEnum = z.enum([
   "NTP_RESPONSE", // Reply to an NTP_REQUEST time sync probe
   "SEARCH_RESPONSE", // Music search results
   "LIVENESS_PING", // Liveness probe; client replies with LIVENESS_PONG
+  "NOTICE", // A short message for one user, e.g. why their request could not be done
 ]);
 
 // Client change

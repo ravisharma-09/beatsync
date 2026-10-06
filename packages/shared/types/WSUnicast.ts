@@ -26,7 +26,14 @@ const LivenessPingMessageSchema = z.object({
   type: z.literal(ServerActionEnum.enum.LIVENESS_PING),
 });
 
+const NoticeMessageSchema = z.object({
+  type: z.literal(ServerActionEnum.enum.NOTICE),
+  level: z.enum(["info", "error"]),
+  message: z.string(),
+});
+
 export const WSUnicastSchema = z.discriminatedUnion("type", [
+  NoticeMessageSchema,
   NTPResponseMessageSchema,
   ScheduledActionSchema,
   MusicSearchResponseSchema,

@@ -40,6 +40,7 @@ import {
   PlaylistNameSchema,
   RegisterSchema,
   SaveQueueSchema,
+  SaveRoomTrackSchema,
   SetPlaylistTracksSchema,
 } from "@beatsync/shared";
 import type { z } from "zod";
@@ -185,6 +186,7 @@ async function route(req: Request, segments: string[], server: BunServer): Promi
     if (at(2) && method === "DELETE") return await deleteRoom(user, a);
     if (at(3) && b === "add-playlist" && method === "POST") return await addPlaylistToRoom(req, user, a, server);
     if (at(3) && b === "add-tracks" && method === "POST") return await addTracksToRoom(req, user, a, server);
+    if (at(3) && b === "save-track" && method === "POST") return await saveRoomTrack(req, user, a);
     if (at(3) && b === "save-queue" && method === "POST") return await saveQueueAsPlaylist(req, user, a);
     return null;
   }
@@ -383,6 +385,33 @@ async function saveQueueAsPlaylist(req: Request, user: UserType, roomId: string)
     tracks.map((track) => track.id)
   );
   return jsonResponse({ playlist, failed }, 201);
+}
+
+async function saveRoomTrack(req: Request, user: UserType, roomId: string): Promise<Response> {
+  const { url, playlistId } = await parseBody(req, SaveRoomTrackSchema);
+
+  // Only items of a room the caller is in can be saved, so this cannot be used to copy arbitrary files
+  const room = globalManager.getRoom(roomId);
+  if (!room?.getConnectedClientForUser(user.id)) throw new HttpError(403, "Join the room before saving from it");
+  if (!room.getAudioSources().some((source) => source.url === url)) {
+    throw new HttpError(404, "That track is not in this room's queue");
+  }
+
+  const playlist = playlistId ? repo.getPlaylist(user.id, playlistId) : null;
+  if (playlistId && !playlist) throw new HttpError(404, "Playlist not found");
+
+  let track: LibraryTrackType;
+  try {
+    track = await saveSourceToLibrary(user, url);
+  } catch (error) {
+    console.error(`Failed to save ${url} to library of ${user.id}:`, error);
+    throw new HttpError(500, "Could not save this track");
+  }
+
+  if (playlist && !playlist.tracks.some((existing) => existing.id === track.id)) {
+    repo.setPlaylistTracks(user.id, playlist.id, [...playlist.tracks.map((existing) => existing.id), track.id]);
+  }
+  return jsonResponse({ track, playlistName: playlist?.name ?? null }, 201);
 }
 
 /**
