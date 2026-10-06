@@ -26,6 +26,8 @@ const S3_CONFIG = {
 const r2Client = new S3Client({
   region: "auto",
   endpoint: S3_CONFIG.ENDPOINT,
+  // Needed for local S3 stand-ins such as MinIO (http://localhost:9000/bucket/key). Leave unset for R2.
+  forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
   credentials: {
     accessKeyId: S3_CONFIG.ACCESS_KEY_ID,
     secretAccessKey: S3_CONFIG.SECRET_ACCESS_KEY,
@@ -629,8 +631,15 @@ export function getPublicUrlForKey(key: string): string {
 
 /** The storage key if this URL points into our bucket's public URL, else null. */
 export function extractOwnKeyFromUrl(url: string): string | null {
-  if (!S3_CONFIG.PUBLIC_URL || !url.startsWith(`${S3_CONFIG.PUBLIC_URL}/`)) return null;
-  return extractKeyFromUrl(url);
+  const prefix = `${S3_CONFIG.PUBLIC_URL}/`;
+  if (!S3_CONFIG.PUBLIC_URL || !url.startsWith(prefix)) return null;
+  // Strip the public URL itself instead of using the URL's path: the public URL may
+  // contain a path of its own (e.g. http://localhost:9000/my-bucket).
+  try {
+    return url.slice(prefix.length).split(/[?#]/)[0].split("/").map(decodeURIComponent).join("/");
+  } catch {
+    return null;
+  }
 }
 
 export async function generatePresignedUserUploadUrl(

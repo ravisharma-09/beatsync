@@ -5,6 +5,7 @@ import { useWebSocketReconnection } from "@/hooks/useWebSocketReconnection";
 import { IS_DEMO_MODE } from "@/lib/demo";
 import { getUserLocation } from "@/lib/ip";
 import { getWsUrl } from "@/lib/urls";
+import { useAuthStore } from "@/store/auth";
 import { useGlobalStore } from "@/store/global";
 import { useRoomStore } from "@/store/room";
 import { sendWSRequest } from "@/utils/ws";
@@ -58,8 +59,11 @@ export const WebSocketManager = ({ roomId, username }: WebSocketManagerProps) =>
   const creatorParam = creatorSecret ? `&creator=${encodeURIComponent(creatorSecret)}` : "";
 
   const createConnection = () => {
-    const SOCKET_URL = `${getWsUrl()}?roomId=${roomId}&username=${username}&clientId=${clientId}${adminParam}${creatorParam}`;
-    console.log("Creating new WS connection to", SOCKET_URL);
+    // Read the login token at connect time so reconnects pick up a login or logout
+    const { token } = useAuthStore.getState();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+    const SOCKET_URL = `${getWsUrl()}?roomId=${roomId}&username=${encodeURIComponent(username)}&clientId=${clientId}${adminParam}${creatorParam}${tokenParam}`;
+    console.log("Creating new WS connection for room", roomId);
 
     // Clear previous connection if it exists
     if (socket) {

@@ -37,7 +37,7 @@ bun lint                 # next lint
 
 ### Server Manager Hierarchy
 
-The server uses a manager pattern with in-memory state (no database):
+The server uses a manager pattern with in-memory state for live rooms:
 
 - **`GlobalManager`** (singleton): Manages all rooms. Accessed via `GlobalManager.rooms`. Caches active user count with dirty flag.
 - **`RoomManager`** (per-room): Owns clients, audio sources, playback state, spatial audio config, chat. Handles audio loading coordination and synchronized play scheduling.
@@ -100,6 +100,16 @@ When play is requested, the server doesn't immediately schedule playback. Instea
 
 Grid-based positioning system where clients are placed on a grid. A "listening source" position determines gain per client using distance calculations. Server broadcasts spatial gain config at 100ms intervals. Client applies: `effectiveGain = globalVolume × spatialGain`.
 
+### Accounts, Library, Playlists and Permanent Rooms
+
+Persistent data lives in SQLite (`bun:sqlite`, schema and migrations in `apps/server/src/db/index.ts`, queries in `db/repo.ts`). Live room state stays in memory in `RoomManager`.
+
+- **Auth** (`apps/server/src/auth/`): email + password (`Bun.password`), opaque session tokens stored hashed, sent as `Authorization: Bearer`. The WebSocket takes the same token as a `token` query param; `WSData.userId` is set when it is valid.
+- **HTTP routes** (`apps/server/src/routes/account.ts`): `/auth/*`, `/library/*`, `/playlists/*`, `/rooms/*`. Schemas are in `packages/shared/types/account.ts`.
+- **Library files** are stored under `user-{userId}/`, never under `room-{roomId}/`, so room cleanup and orphan cleanup cannot delete them.
+- **Permanent rooms** are rows in `rooms`. Their queue is saved on every change (`onQueueChange` in `RoomManager`), cleanup keeps their uploads, and the owner is always admin. Orphan cleanup must always be given `getPermanentRoomIds()` as well as the in-memory room IDs.
+- **Client**: `store/auth.ts` (persisted login, hydrated by `AuthHydrator` after mount), `lib/accountApi.ts`, pages `/account` and `/library`, and `PlaylistActions` above the room queue.
+
 ## Environment Setup
 
 `apps/client/.env`:
@@ -115,6 +125,9 @@ S3_PUBLIC_URL=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
+# Optional
+DATABASE_PATH=./data/beatsync.db   # SQLite file for accounts, playlists and permanent rooms
+S3_FORCE_PATH_STYLE=true           # only for local S3 stand-ins such as MinIO
 ```
 
 ## Deployment
@@ -129,6 +142,6 @@ S3_SECRET_ACCESS_KEY=
 - Only test non-obvious behavior whose failure would be silent in dev and expensive in prod — no trivial/"doesn't crash" tests
 - Server uses native `Bun.serve()` with URL pathname switch routing (not Hono's router)
 - Room IDs are 6-digit codes
-- Room cleanup: 60s after last client disconnects, room is deleted (including its R2 uploads — intentional)
+- Room cleanup: 60s after last client disconnects, a temporary room is deleted (including its R2 uploads — intentional). Permanent rooms only leave memory; their queue and uploads are kept
 - Admin auto-promotion: if last admin leaves, the most recently seen client is promoted
 - Client liveness: server sends `LIVENESS_PING` after 15s of silence; clients reply `LIVENESS_PONG` from `onmessage` (immune to background-tab timer throttling); silent for 60s → terminated and removed

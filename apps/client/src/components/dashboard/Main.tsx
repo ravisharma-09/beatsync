@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { Queue } from "../Queue";
 import { InlineSearch } from "./InlineSearch";
+import { PlaylistActions } from "./PlaylistActions";
 
 export const Main = () => {
   return (
@@ -16,6 +17,7 @@ export const Main = () => {
         <div className="mb-6">
           <InlineSearch />
         </div>
+        <PlaylistActions />
         <Queue className="mb-8" />
       </motion.div>
     </motion.div>

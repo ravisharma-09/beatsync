@@ -5,6 +5,7 @@ import { SOCIAL_LINKS } from "@/constants";
 import { fetchActiveRooms } from "@/lib/api";
 import { generateName } from "@/lib/randomNames";
 import { validateFullRoomId, validatePartialRoomId } from "@/lib/room";
+import { useAuthStore } from "@/store/auth";
 import { useRoomStore } from "@/store/room";
 import { useQuery } from "@tanstack/react-query";
 import { PlusCircle } from "lucide-react";
@@ -14,6 +15,8 @@ import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { FaDiscord, FaGithub } from "react-icons/fa";
 import { toast } from "sonner";
+import { AccountBar } from "./account/AccountBar";
+import { MyRooms } from "./account/MyRooms";
 import { ActiveRooms } from "./ActiveRooms";
 // import { AnnouncementBanner } from "./AnnouncementBanner";
 
@@ -26,6 +29,7 @@ export const Join = () => {
   const [isCreating, setIsCreating] = useState(false);
   const setUsername = useRoomStore((state) => state.setUsername);
   const username = useRoomStore((state) => state.username);
+  const accountName = useAuthStore((state) => state.user?.username);
 
   const {
     handleSubmit,
@@ -40,9 +44,9 @@ export const Join = () => {
 
   useEffect(() => {
     // Set a random username when component mounts
-    const generatedName = generateName();
-    setUsername(generatedName);
-  }, [setValue, setUsername]);
+    // Logged-in users always join under their account name
+    setUsername(accountName ?? generateName());
+  }, [setValue, setUsername, accountName]);
 
   const { data: numActiveUsers } = useQuery({
     queryKey: ["active-rooms"],
@@ -85,7 +89,10 @@ export const Join = () => {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       {/* <AnnouncementBanner /> */}
-      <div className="w-full px-2.5 lg:px-1 max-w-[28rem] mx-auto mt-24 lg:mt-28">
+      <div className="px-4 pt-3">
+        <AccountBar />
+      </div>
+      <div className="w-full px-2.5 lg:px-1 max-w-[28rem] mx-auto mt-13 lg:mt-17">
         <motion.div
           className="flex flex-col items-center justify-center p-6 bg-neutral-900 rounded-lg border border-neutral-800 shadow-xl mx-auto"
           initial={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -220,15 +227,17 @@ export const Join = () => {
                   </motion.span>
                 </AnimatePresence>
               </div>
-              <Button
-                type="button"
-                onClick={handleRegenerateName}
-                variant="ghost"
-                className="text-xs text-neutral-500 hover:text-neutral-300 ml-2 h-6 px-2"
-                disabled={isJoining || isCreating}
-              >
-                Regenerate
-              </Button>
+              {!accountName && (
+                <Button
+                  type="button"
+                  onClick={handleRegenerateName}
+                  variant="ghost"
+                  className="text-xs text-neutral-500 hover:text-neutral-300 ml-2 h-6 px-2"
+                  disabled={isJoining || isCreating}
+                >
+                  Regenerate
+                </Button>
+              )}
             </motion.div>
 
             <div className="flex flex-col gap-3 mt-5">
@@ -336,6 +345,8 @@ export const Join = () => {
             </a>
           </motion.div>
         </motion.div>
+
+        <MyRooms />
 
         {/* Active Rooms Section */}
         <ActiveRooms />
