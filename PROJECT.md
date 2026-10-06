@@ -31,8 +31,8 @@ use as an everyday music app:
 | Playlists | Create, rename, reorder, delete. Add a playlist to a room, save a room's queue as a playlist, or save the current track. Start a room straight from a playlist. | Built, tested in a browser |
 | Rooms that last | Permanent rooms keep their code, queue and uploads. The owner is always admin. | Built, tested in a browser |
 | A legal catalog with tight sync | Audius search. The server never downloads Audius audio: each listener's browser fetches it from Audius, as Audius's terms require. Audio servers that are down or refuse browsers are skipped. | Built; search and audio loading checked against live Audius, full flow tested with a stand-in |
-| Mainstream music | YouTube videos play in YouTube's own visible player. The room clock starts every player at the same moment and seeks a player back when it drifts more than half a second. | Built; **not yet seen playing a real video** |
-| Finding chart songs for free | Typing searches Apple's free iTunes Search from the user's browser. Picking a song asks the server to find its YouTube video once; the match is saved for 30 days. Fallback: Brave web search. | Built, unit tested; **not yet run with real keys** |
+| Mainstream music | YouTube videos play in YouTube's own visible player. The room clock starts every player at the same moment and seeks a player back when it drifts more than half a second. | Built; confirmed playing a real video on one device (7 Oct 2026). **Sync between two devices not yet checked** |
+| Finding chart songs for free | Typing searches Apple's free iTunes Search from the user's browser. Picking a song asks the server to find its YouTube video once; the match is saved for 30 days. Fallback: Brave web search. | Built, unit tested; confirmed with a real YouTube key (7 Oct 2026). Brave fallback not yet run with a real key |
 | A simple screen | New home page (Start a room, Join a room, your rooms, your playlists). Room screen: what is playing on the left, Up next on the right, one player bar. Phone: four tabs. Advanced sound tools sit behind two buttons. | Built, tested in a browser on computer and phone sizes |
 
 ## Why music works the way it does
@@ -75,7 +75,7 @@ Without the last two, pasting a YouTube link still works; only search by song na
 
 ## Open problems
 
-- YouTube playback and song-name search have not been tried against the real services yet.
+- YouTube sync has only been seen on one device; two devices side by side still need checking.
 - A picked song can match the wrong video (a live version or lyric video). The queue shows
   the video's own title so this is visible.
 - Using iTunes Search mainly to find songs that then play on YouTube is a grey area in
@@ -88,7 +88,7 @@ Without the last two, pasting a YouTube link still works; only search by song na
 
 ## Next
 
-1. Confirm YouTube playback and song search with real keys.
+1. Check YouTube sync between two devices.
 2. Playlist import (pasted lists; Spotify import is limited to 5 users by Spotify).
 3. Phone apps, because phone browsers cannot keep synced audio playing in the background.
 4. Better sync than Beatsync: drift correction on long tracks, saved Bluetooth delay per device.
