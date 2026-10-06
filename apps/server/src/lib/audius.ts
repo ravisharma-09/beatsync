@@ -43,13 +43,13 @@ const AudiusSearchResponseSchema = z.object({
 function buildUrl(path: string, params: Record<string, string>): string {
   const url = new URL(`${API_URL}/v1${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  if (API_KEY) url.searchParams.set("api_key", API_KEY);
   url.searchParams.set("app_name", APP_NAME);
   return url.toString();
 }
 
+/** The key goes in a header (as Audius documents), never in the URL, so it does not end up in logs. */
 function headers(): Record<string, string> {
-  return { Accept: "application/json", ...(API_KEY ? { "x-api-key": API_KEY } : {}) };
+  return { Accept: "application/json", ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) };
 }
 
 /** Tracks everyone can stream for free: not paid, not follower-only, not deleted or hidden. */

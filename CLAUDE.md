@@ -134,7 +134,7 @@ S3_PUBLIC_URL=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
-AUDIUS_API_KEY=                    # from audius.co/settings → Developer Apps; needed for catalog search
+AUDIUS_API_KEY=                    # bearer token from api.audius.co/plans → Create API Key (free: 10 req/s, 500k/month)
 # Optional
 AUDIUS_APP_NAME=beatsync           # name sent to Audius with each request
 DATABASE_PATH=./data/beatsync.db   # SQLite file for accounts, playlists and permanent rooms
