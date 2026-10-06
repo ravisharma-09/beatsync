@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  // Hide the round Next.js "N" badge that otherwise sits on top of the logo while developing
+  devIndicators: false,
   images: {
     remotePatterns: [
       {
