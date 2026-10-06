@@ -3,6 +3,7 @@ import { BackupManager } from "@/managers/BackupManager";
 import { deleteExpiredSessions } from "@/auth";
 import { handleAccountRoutes } from "@/routes/account";
 import { AUDIUS_STREAM_PATH_PREFIX } from "@/lib/audius";
+import { validateR2Config } from "@/lib/r2";
 import { getActiveRooms } from "@/routes/active";
 import { handleAudiusStream } from "@/routes/audiusStream";
 import { handleGetDefaultAudio } from "@/routes/default";
@@ -129,7 +130,14 @@ if (IS_DEMO_MODE) {
   console.log(`🔑 Admin secret: ${ADMIN_SECRET}`);
 }
 
-if (!IS_DEMO_MODE) {
+// Without file storage there is nowhere to back up to. Rooms, search and catalog playback
+// still work; only uploads and surviving a restart with live rooms need storage.
+const hasStorage = validateR2Config().isValid;
+if (!IS_DEMO_MODE && !hasStorage) {
+  console.warn("⚠️  File storage (S3_* settings) is not configured: uploads and state backups are off.");
+}
+
+if (!IS_DEMO_MODE && hasStorage) {
   // Restore state from backup on startup
   BackupManager.restoreState().catch((error) => {
     console.error("Failed to restore state on startup:", error);
@@ -154,7 +162,7 @@ const shutdown = async () => {
   console.log("\n⚠️ Shutting down...");
 
   void server.stop(); // Stop accepting new connections
-  if (!IS_DEMO_MODE) {
+  if (!IS_DEMO_MODE && hasStorage) {
     await BackupManager.backupState(); // Save state
   }
 
