@@ -9,6 +9,7 @@ import { ArrowDown, Search as SearchIcon, X, ZapIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
+import { LibrarySearchResults } from "./LibrarySearchResults";
 import { SearchResults } from "./SearchResults";
 
 interface SearchForm {
@@ -118,6 +119,27 @@ export function InlineSearch() {
       },
     });
   };
+
+  // Search as you type: wait for a short pause, then search without needing Enter.
+  const librarySearchQuery = watchedQuery ?? "";
+  const lastAutoSearchedQuery = React.useRef("");
+  const onSubmitRef = React.useRef(onSubmit);
+  React.useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  });
+  React.useEffect(() => {
+    const query = (watchedQuery ?? "").trim();
+    if (query.length < 2) {
+      lastAutoSearchedQuery.current = "";
+      return;
+    }
+    if (query === lastAutoSearchedQuery.current) return;
+    const timer = setTimeout(() => {
+      lastAutoSearchedQuery.current = query;
+      onSubmitRef.current({ query });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [watchedQuery]);
 
   const handleTrackSelection = () => {
     // Show checkmark animation
@@ -300,7 +322,7 @@ export function InlineSearch() {
       {/* Beta Disclaimer */}
       <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-neutral-500 ml-0.5">
         <ZapIcon className="size-3 text-neutral-400 stroke-1" />
-        <span>[EXPERIMENTAL FREE BETA]</span>
+        <span>Searches Audius and your library</span>
       </div>
 
       {/* Search Results Dropdown */}
@@ -333,6 +355,8 @@ export function InlineSearch() {
                 isMobile ? "max-h-[70vh]" : "max-h-[60vh]"
               )}
             >
+              {/* Own uploads first: they show even when the catalog has nothing or is unreachable */}
+              <LibrarySearchResults query={librarySearchQuery} onTrackSelect={handleTrackSelection} />
               {isSearching || searchResults ? (
                 <SearchResults className="p-2" onTrackSelect={handleTrackSelection} />
               ) : (

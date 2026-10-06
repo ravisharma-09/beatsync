@@ -117,5 +117,8 @@ export const fetchRoomInfo = async (roomId: string) => (await client.get<RoomInf
 export const addPlaylistToRoom = async (roomId: string, playlistId: string) =>
   (await client.post<{ added: number; skipped: number }>(`/rooms/${roomId}/add-playlist`, { playlistId })).data;
 
+export const addTracksToRoom = async (roomId: string, trackIds: string[]) =>
+  (await client.post<{ added: number; skipped: number }>(`/rooms/${roomId}/add-tracks`, { trackIds })).data;
+
 export const saveQueueAsPlaylist = async (roomId: string, name: string) =>
   (await client.post<{ playlist: PlaylistType; failed: number }>(`/rooms/${roomId}/save-queue`, { name })).data;

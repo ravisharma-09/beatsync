@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CHAT_CONSTANTS, LOW_PASS_CONSTANTS } from "../constants";
 import { AudioSourceSchema, PositionSchema } from "./basic";
+import { CatalogTrackIdSchema } from "./provider";
 
 // ROOM EVENTS
 export const LocationSchema = z.object({
@@ -128,8 +129,8 @@ export const SearchMusicSchema = z.object({
 
 export const StreamMusicSchema = z.object({
   type: z.literal(ClientActionEnum.enum.STREAM_MUSIC),
-  trackId: z.number(),
-  trackName: z.string().optional(),
+  trackId: CatalogTrackIdSchema,
+  trackName: z.string().max(300).optional(),
 });
 
 export const SetGlobalVolumeSchema = z.object({

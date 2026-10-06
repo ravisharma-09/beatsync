@@ -42,6 +42,14 @@ export function listTracks(userId: string): LibraryTrackType[] {
     .map(toTrack);
 }
 
+export function getTracksByIds(userId: string, trackIds: string[]): LibraryTrackType[] {
+  const byId = db.query<TrackRow, [string, string]>("SELECT * FROM tracks WHERE id = ? AND user_id = ?");
+  return trackIds.flatMap((trackId) => {
+    const row = byId.get(trackId, userId);
+    return row ? [toTrack(row)] : [];
+  });
+}
+
 export function countTracks(userId: string): number {
   return db.query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM tracks WHERE user_id = ?").get(userId)!.n;
 }

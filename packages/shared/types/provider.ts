@@ -2,15 +2,15 @@ import { z } from "zod";
 
 export const SearchParamsSchema = z.object({
   q: z.string().min(1, "Query is required"),
-  offset: z
-    .number()
-    .max(1000, "Offset must be less than 1000")
-    .min(0, "Offset must be 0 or greater")
-    .default(0),
+  offset: z.number().max(1000, "Offset must be less than 1000").min(0, "Offset must be 0 or greater").default(0),
 });
 
+/** Catalog track ID. Audius uses short string IDs (e.g. "D7KyD"). */
+export const CatalogTrackIdSchema = z.union([z.string().regex(/^[A-Za-z0-9]{1,32}$/), z.number().min(0)]);
+export type CatalogTrackIdType = z.infer<typeof CatalogTrackIdSchema>;
+
 export const TrackParamsSchema = z.object({
-  id: z.number().min(0, "ID must be 0 or greater"),
+  id: CatalogTrackIdSchema,
 });
 
 export const AlbumSchema = z.object({
@@ -62,7 +62,7 @@ export const TrackSchema = z.object({
   version: z.string().nullable().optional(),
   duration: z.number(),
   parental_warning: z.boolean(),
-  id: z.number(),
+  id: CatalogTrackIdSchema,
 });
 export type TrackType = z.infer<typeof TrackSchema>;
 

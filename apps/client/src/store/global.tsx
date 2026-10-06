@@ -1558,7 +1558,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
                 ...results.response.data,
                 tracks: {
                   ...results.response.data.tracks,
-                  items: [...existingItems, ...newItems],
+                  // A page can overlap the previous one (the server filters out tracks that
+                  // cannot be streamed, so offsets drift), so never show a track twice.
+                  items: [
+                    ...existingItems,
+                    ...newItems.filter((item) => !existingItems.some((existing) => existing.id === item.id)),
+                  ],
                 },
               },
             },

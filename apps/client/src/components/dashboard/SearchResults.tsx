@@ -22,7 +22,7 @@ export function SearchResults({ className, onTrackSelect }: SearchResultsProps) 
   const isSearching = useGlobalStore((state) => state.isSearching);
 
   // Track which tracks are currently being streamed to prevent duplicates
-  const streamingTracksRef = useRef<Set<number>>(new Set());
+  const streamingTracksRef = useRef<Set<string | number>>(new Set());
   const isLoadingMoreResults = useGlobalStore((state) => state.isLoadingMoreResults);
   const hasMoreResults = useGlobalStore((state) => state.hasMoreResults);
   const searchQuery = useGlobalStore((state) => state.searchQuery);
@@ -253,7 +253,7 @@ export function SearchResults({ className, onTrackSelect }: SearchResultsProps) 
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.1 }}
           >
-            No results found
+            Nothing found on Audius
           </motion.h3>
 
           <motion.p
@@ -262,7 +262,8 @@ export function SearchResults({ className, onTrackSelect }: SearchResultsProps) 
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.15 }}
           >
-            Try searching for a different artist, song, or album
+            The catalog is Audius (independent artists), so chart hits are often missing. Upload your own files to play
+            anything.
           </motion.p>
         </motion.div>
       );
@@ -290,7 +291,7 @@ export function SearchResults({ className, onTrackSelect }: SearchResultsProps) 
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, delay: 0.15 }}
         >
-          Experimental. Free while in beta.
+          Free, independent music from Audius, plus your own library.
         </motion.p>
       </motion.div>
     );
@@ -300,6 +301,18 @@ export function SearchResults({ className, onTrackSelect }: SearchResultsProps) 
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={cn(isMobile && "max-h-[40vh]", className)}>
+      <p className="px-3 pt-1 pb-1.5 text-[11px] uppercase tracking-wide text-neutral-500">
+        From{" "}
+        <a
+          href="https://audius.co"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:text-neutral-300"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          Audius
+        </a>
+      </p>
       <AnimatePresence>
         <div className="space-y-1">
           {tracks.map((track, index) => (

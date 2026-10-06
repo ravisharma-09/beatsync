@@ -42,9 +42,7 @@ export type UploadCompleteType = z.infer<typeof UploadCompleteSchema>;
 export const UploadCompleteResponseSchema = z.object({
   success: z.boolean(),
 });
-export type UploadCompleteResponseType = z.infer<
-  typeof UploadCompleteResponseSchema
->;
+export type UploadCompleteResponseType = z.infer<typeof UploadCompleteResponseSchema>;
 
 // Audio fetch request (unchanged)
 export const GetAudioSchema = z.object({

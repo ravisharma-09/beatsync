@@ -1,11 +1,6 @@
 import { z } from "zod";
 import { LOW_PASS_CONSTANTS } from "../constants";
-import {
-  LocationSchema,
-  PauseActionSchema,
-  PlayActionSchema,
-  SetPlaybackControlsSchema,
-} from "./WSRequest";
+import { LocationSchema, PauseActionSchema, PlayActionSchema, SetPlaybackControlsSchema } from "./WSRequest";
 import { AudioSourceSchema, ChatMessageSchema, PositionSchema } from "./basic";
 
 // Server -> client message types (mirrors ClientActionEnum for client -> server)
@@ -80,10 +75,7 @@ const RoomEventSchema = z.object({
 // SCHEDULED ACTIONS
 const SpatialConfigSchema = z.object({
   type: z.literal("SPATIAL_CONFIG"),
-  gains: z.record(
-    z.string(),
-    z.object({ gain: z.number().min(0).max(1), rampTime: z.number() })
-  ),
+  gains: z.record(z.string(), z.object({ gain: z.number().min(0).max(1), rampTime: z.number() })),
   listeningSource: PositionSchema,
 });
 

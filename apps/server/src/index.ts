@@ -2,7 +2,9 @@ import { ADMIN_SECRET, IS_DEMO_MODE } from "@/demo";
 import { BackupManager } from "@/managers/BackupManager";
 import { deleteExpiredSessions } from "@/auth";
 import { handleAccountRoutes } from "@/routes/account";
+import { AUDIUS_STREAM_PATH_PREFIX } from "@/lib/audius";
 import { getActiveRooms } from "@/routes/active";
+import { handleAudiusStream } from "@/routes/audiusStream";
 import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
 import { handleDiscover } from "@/routes/discover";
@@ -37,6 +39,8 @@ const server = Bun.serve<WSData>({
       // Demo mode: serve local audio files
       if (accountResponse) {
         response = accountResponse;
+      } else if (!IS_DEMO_MODE && url.pathname.startsWith(AUDIUS_STREAM_PATH_PREFIX)) {
+        response = await handleAudiusStream(req, url.pathname);
       } else if (IS_DEMO_MODE && url.pathname.startsWith("/audio/")) {
         response = handleServeAudio(url.pathname);
       } else {

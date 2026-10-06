@@ -31,6 +31,7 @@ import type { BunServer } from "@/utils/websocket";
 import type { AuthResponseType, LibraryTrackType, UploadUrlResponseType, UserType } from "@beatsync/shared";
 import {
   AddPlaylistToRoomSchema,
+  AddTracksToRoomSchema,
   CreateRoomSchema,
   LibraryUploadCompleteSchema,
   LibraryUploadUrlSchema,
@@ -183,6 +184,7 @@ async function route(req: Request, segments: string[], server: BunServer): Promi
     }
     if (at(2) && method === "DELETE") return await deleteRoom(user, a);
     if (at(3) && b === "add-playlist" && method === "POST") return await addPlaylistToRoom(req, user, a, server);
+    if (at(3) && b === "add-tracks" && method === "POST") return await addTracksToRoom(req, user, a, server);
     if (at(3) && b === "save-queue" && method === "POST") return await saveQueueAsPlaylist(req, user, a);
     return null;
   }
@@ -294,9 +296,8 @@ async function deleteRoom(user: UserType, roomId: string): Promise<Response> {
   return jsonResponse({ success: true });
 }
 
-async function addPlaylistToRoom(req: Request, user: UserType, roomId: string, server: BunServer): Promise<Response> {
-  const { playlistId } = await parseBody(req, AddPlaylistToRoomSchema);
-
+/** The live room, if this user is connected to it and allowed to change its queue. */
+function requireMutableRoom(user: UserType, roomId: string) {
   const room = globalManager.getRoom(roomId);
   const client = room?.getConnectedClientForUser(user.id);
   if (!room || !client) throw new HttpError(403, "Join the room before adding music to it");
@@ -304,13 +305,15 @@ async function addPlaylistToRoom(req: Request, user: UserType, roomId: string, s
   const canMutate =
     client.isAdmin || room.getPlaybackControlsPermissions() === PlaybackControlsPermissionsEnum.enum.EVERYONE;
   if (!canMutate) throw new HttpError(403, "Only room admins can change the queue");
+  return room;
+}
 
-  const playlist = repo.getPlaylist(user.id, playlistId);
-  if (!playlist) throw new HttpError(404, "Playlist not found");
-
+/** Appends library tracks to a live queue, skipping ones already in it, and tells the room. */
+function queueTracks(roomId: string, tracks: LibraryTrackType[], server: BunServer): Response {
+  const room = globalManager.getRoom(roomId)!;
   const alreadyQueued = new Set(room.getAudioSources().map((source) => source.url));
   let added = 0;
-  for (const track of playlist.tracks) {
+  for (const track of tracks) {
     if (alreadyQueued.has(track.url)) continue;
     room.addAudioSource({ url: track.url });
     alreadyQueued.add(track.url);
@@ -325,7 +328,27 @@ async function addPlaylistToRoom(req: Request, user: UserType, roomId: string, s
     });
   }
 
-  return jsonResponse({ added, skipped: playlist.tracks.length - added });
+  return jsonResponse({ added, skipped: tracks.length - added });
+}
+
+async function addPlaylistToRoom(req: Request, user: UserType, roomId: string, server: BunServer): Promise<Response> {
+  const { playlistId } = await parseBody(req, AddPlaylistToRoomSchema);
+  requireMutableRoom(user, roomId);
+
+  const playlist = repo.getPlaylist(user.id, playlistId);
+  if (!playlist) throw new HttpError(404, "Playlist not found");
+
+  return queueTracks(roomId, playlist.tracks, server);
+}
+
+async function addTracksToRoom(req: Request, user: UserType, roomId: string, server: BunServer): Promise<Response> {
+  const { trackIds } = await parseBody(req, AddTracksToRoomSchema);
+  requireMutableRoom(user, roomId);
+
+  const tracks = repo.getTracksByIds(user.id, trackIds);
+  if (tracks.length === 0) throw new HttpError(404, "Track not found in your library");
+
+  return queueTracks(roomId, tracks, server);
 }
 
 async function saveQueueAsPlaylist(req: Request, user: UserType, roomId: string): Promise<Response> {

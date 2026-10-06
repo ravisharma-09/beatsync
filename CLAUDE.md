@@ -43,7 +43,7 @@ The server uses a manager pattern with in-memory state for live rooms:
 - **`RoomManager`** (per-room): Owns clients, audio sources, playback state, spatial audio config, chat. Handles audio loading coordination and synchronized play scheduling.
 - **`ChatManager`** (per-room, owned by RoomManager): Message history with incremental IDs.
 - **`BackupManager`** (singleton): Periodic state backup/restore to R2 (every 60s). Restores on startup.
-- **`MusicProviderManager`**: External music search and streaming integration.
+- **`MusicProviderManager`**: Catalog search, backed by Audius (`apps/server/src/lib/audius.ts`).
 
 ### WebSocket Protocol
 
@@ -110,6 +110,15 @@ Persistent data lives in SQLite (`bun:sqlite`, schema and migrations in `apps/se
 - **Permanent rooms** are rows in `rooms`. Their queue is saved on every change (`onQueueChange` in `RoomManager`), cleanup keeps their uploads, and the owner is always admin. Orphan cleanup must always be given `getPermanentRoomIds()` as well as the in-memory room IDs.
 - **Client**: `store/auth.ts` (persisted login, hydrated by `AuthHydrator` after mount), `lib/accountApi.ts`, pages `/account` and `/library`, and `PlaylistActions` above the room queue.
 
+### Catalog Search (Audius)
+
+Room search uses the Audius API. Audius allows streaming only, not downloading or re-hosting, so the server never fetches audio:
+
+- `SEARCH_MUSIC` → `lib/audius.ts` `searchTracks()` (drops paid, gated, deleted and hidden tracks) → mapped onto the existing search-result schema.
+- `STREAM_MUSIC` adds a queue item `/audius/stream/{trackId}/{display name}.mp3`. Nothing is uploaded to R2.
+- `GET /audius/stream/...` (`routes/audiusStream.ts`) answers 302 to the audio on Audius, so each listener's browser fetches it directly. Do not change this to proxy or cache audio.
+- The client also shows matches from the user's own library (`LibrarySearchResults`), added through `POST /rooms/:id/add-tracks`.
+
 ## Environment Setup
 
 `apps/client/.env`:
@@ -125,7 +134,9 @@ S3_PUBLIC_URL=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
+AUDIUS_API_KEY=                    # from audius.co/settings → Developer Apps; needed for catalog search
 # Optional
+AUDIUS_APP_NAME=beatsync           # name sent to Audius with each request
 DATABASE_PATH=./data/beatsync.db   # SQLite file for accounts, playlists and permanent rooms
 S3_FORCE_PATH_STYLE=true           # only for local S3 stand-ins such as MinIO
 ```
