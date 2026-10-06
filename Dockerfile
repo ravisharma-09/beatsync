@@ -28,6 +28,11 @@ WORKDIR /app/apps/server
 
 COPY --from=build /app/apps/server/dist ./dist
 
+# Accounts, playlists and permanent rooms live in one SQLite file. Mount a persistent
+# volume at /data, or they are lost every time the container is replaced.
+ENV DATABASE_PATH=/data/syncpo.db
+VOLUME /data
+
 EXPOSE 8080
 ENV NODE_ENV=production
 CMD ["bun", "dist/index.js"]
