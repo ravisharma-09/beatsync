@@ -4,7 +4,14 @@ import { GlobalVolumeControl } from "@/components/dashboard/GlobalVolumeControl"
 import { MobileNudgeControl } from "@/components/dashboard/MobileNudgeControl";
 import { NudgeControl } from "@/components/dashboard/NudgeControl";
 import { SpatialAudio } from "@/components/dashboard/right/SpatialAudio";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,8 +29,20 @@ import { MAX_NTP_MEASUREMENTS, useGlobalStore } from "@/store/global";
 import { useRoomStore } from "@/store/room";
 import { isYouTubeQueueUrl } from "@beatsync/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, Check, Copy, ListPlus, MoreHorizontal, Music, SlidersHorizontal, UserPlus } from "lucide-react";
+import {
+  AudioLines,
+  Check,
+  ChevronLeft,
+  Copy,
+  ListPlus,
+  LogOut,
+  MoreHorizontal,
+  Music,
+  SlidersHorizontal,
+  UserPlus,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import QRCodeLib from "qrcode";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -42,6 +61,14 @@ export const Logo = ({ className }: { className?: string }) => (
     <AudioLines className="size-[22px] text-green-500" aria-hidden />
     {APP_NAME}
   </Link>
+);
+
+/** The logo without a link, for inside a room, where a stray click must not end the music. */
+export const LogoMark = ({ className }: { className?: string }) => (
+  <div className={cn("flex min-h-11 items-center gap-2 text-[17px] font-semibold text-white", className)}>
+    <AudioLines className="size-[22px] text-green-500" aria-hidden />
+    {APP_NAME}
+  </div>
 );
 
 const pillButton =
@@ -123,17 +150,103 @@ export const InviteButton = ({ className }: { className?: string }) => {
   );
 };
 
-export const AccountButton = () => {
+/** `inRoom`: open in a new tab, so the room keeps playing in this one. */
+export const AccountButton = ({ inRoom = false }: { inRoom?: boolean }) => {
   const user = useAuthStore((state) => state.user);
   return (
     <Link
       href={user ? "/library" : "/account"}
+      target={inRoom ? "_blank" : undefined}
       aria-label={user ? `${user.username}: my music` : "Log in or sign up"}
       title={user ? "My music" : "Log in or sign up"}
       className="flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-700 bg-neutral-800 text-sm font-semibold text-white hover:bg-neutral-700"
     >
       {user ? user.username.slice(0, 1).toUpperCase() : "?"}
     </Link>
+  );
+};
+
+// ── Leaving the room ────────────────────────────────────────────────────────
+
+/**
+ * The only way out of a room: a button that asks first. While it is on screen, the
+ * browser's Back (button or swipe) asks the same question instead of leaving, and closing
+ * or reloading the tab asks while music is playing.
+ */
+export const LeaveRoomButton = ({ variant }: { variant: "icon" | "pill" }) => {
+  const router = useRouter();
+  const [isAsking, setIsAsking] = useState(false);
+  const isLeaving = useRef(false);
+
+  useEffect(() => {
+    // An extra history entry for this page: Back lands on it instead of leaving
+    window.history.pushState(window.history.state, "", window.location.href);
+    const onBack = () => {
+      if (isLeaving.current) return;
+      window.history.pushState(window.history.state, "", window.location.href);
+      setIsAsking(true);
+    };
+    const onUnload = (event: BeforeUnloadEvent) => {
+      if (!isLeaving.current && useGlobalStore.getState().isPlaying) event.preventDefault();
+    };
+    window.addEventListener("popstate", onBack);
+    window.addEventListener("beforeunload", onUnload);
+    // No pull-down-to-reload on phones while in a room
+    const root = document.documentElement;
+    const previousOverscroll = root.style.overscrollBehaviorY;
+    root.style.overscrollBehaviorY = "contain";
+    return () => {
+      root.style.overscrollBehaviorY = previousOverscroll;
+      window.removeEventListener("popstate", onBack);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+  }, []);
+
+  const leave = () => {
+    isLeaving.current = true;
+    router.replace("/");
+  };
+
+  return (
+    <>
+      {variant === "icon" ? (
+        <button
+          type="button"
+          onClick={() => setIsAsking(true)}
+          aria-label="Leave room"
+          className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-white hover:bg-neutral-800"
+        >
+          <ChevronLeft className="size-5" aria-hidden />
+        </button>
+      ) : (
+        <button type="button" onClick={() => setIsAsking(true)} className={pillButton}>
+          <LogOut className="size-[18px]" aria-hidden />
+          Leave
+        </button>
+      )}
+      <Dialog open={isAsking} onOpenChange={setIsAsking}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Leave this room?</DialogTitle>
+            <DialogDescription>
+              The music stops on this device. You can come back with the same room code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <button type="button" onClick={() => setIsAsking(false)} className={cn(pillButton, "justify-center")}>
+              Stay
+            </button>
+            <button
+              type="button"
+              onClick={leave}
+              className={cn(pillButton, "justify-center bg-white text-black hover:bg-neutral-200")}
+            >
+              Leave room
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
@@ -249,7 +362,7 @@ const SaveToPlaylistButton = () => {
 
   if (!user) {
     return (
-      <Link href="/account" className={pillButton}>
+      <Link href="/account" target="_blank" className={pillButton}>
         <ListPlus className="size-[18px]" aria-hidden />
         Log in to save
       </Link>
@@ -274,7 +387,9 @@ const SaveToPlaylistButton = () => {
         {(playlists.data?.length ?? 0) > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onSelect={() => save.mutate(undefined)}>My music (no playlist)</DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/library">Make a new playlist…</Link>
+          <Link href="/library" target="_blank">
+            Make a new playlist…
+          </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -14,8 +14,7 @@ import { useAuthStore } from "@/store/auth";
 import { useCanMutate, useGlobalStore } from "@/store/global";
 import { useRoomStore } from "@/store/room";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ListMusic, MessageCircle, PlusCircle, Users } from "lucide-react";
-import Link from "next/link";
+import { ListMusic, MessageCircle, PlusCircle, Users } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AddMusicSearch } from "./AddMusicSearch";
@@ -23,7 +22,8 @@ import {
   AccountButton,
   CoverPlaceholder,
   InviteButton,
-  Logo,
+  LeaveRoomButton,
+  LogoMark,
   NowPlayingTitle,
   RoomActions,
   RoomFacts,
@@ -142,11 +142,12 @@ const DesktopRoom = () => {
   return (
     <>
       <header className="flex shrink-0 items-center gap-4 border-b border-neutral-800 px-5 py-3">
-        <Logo />
+        <LogoMark />
         <AddMusicSearch variant="dropdown" className="mx-auto max-w-2xl flex-1" />
         <div className="flex items-center gap-2.5">
           <InviteButton />
-          <AccountButton />
+          <AccountButton inRoom />
+          <LeaveRoomButton variant="pill" />
         </div>
       </header>
 
@@ -199,13 +200,7 @@ const PhoneRoom = () => {
   return (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-neutral-800 px-3 py-2">
-        <Link
-          href="/"
-          aria-label="Back to home"
-          className="flex size-11 shrink-0 items-center justify-center rounded-full text-white"
-        >
-          <ChevronLeft className="size-5" />
-        </Link>
+        <LeaveRoomButton variant="icon" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-semibold text-white">{roomName}</div>
           <RoomFacts className="text-xs" />

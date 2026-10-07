@@ -76,6 +76,10 @@ const SEEK_SETTLE_MS = 600;
  * only used at the moment the value changes, when it is fresh.
  */
 const DRIFT_CHECK_INTERVAL_MS = 50;
+/** A pause or play this soon after our own command is its echo, not the person tapping the player. */
+const OWN_COMMAND_ECHO_MS = 1000;
+/** Browsers pause video when a phone locks or the tab is hidden; that shows up just after the pause. */
+const USER_PAUSE_CONFIRM_MS = 300;
 /** After telling the player to play, give it this long before treating "paused" as stuck. */
 const RESUME_GRACE_MS = 2500;
 
@@ -85,6 +89,13 @@ export interface YouTubeRoomHooks {
   onEnded: (videoId: string) => void;
   onDuration: (videoId: string, seconds: number) => void;
   onError: (videoId: string, message: string) => void;
+  /**
+   * The person paused or started the video by tapping the player itself. The room should do
+   * the same for everyone. Return false when this person may not control the room; the
+   * player is then put back to what the room is doing.
+   */
+  onUserPause: (videoId: string) => boolean;
+  onUserPlay: (videoId: string) => boolean;
 }
 
 export type PlaybackSpeed = "normal" | "faster" | "slower";
@@ -181,6 +192,8 @@ class YouTubeController {
   private driftTimer: ReturnType<typeof setInterval> | null = null;
   private lastSeekAt = 0;
   private lastPlayCommandAt = 0;
+  private lastPauseCommandAt = 0;
+  private isPausePending = false;
   private seekLead = DEFAULT_SEEK_LEAD_SECONDS;
   /** A seek was sent and how it landed has not been measured yet. */
   private isSeekUnmeasured = false;
@@ -221,7 +234,9 @@ class YouTubeController {
       width: "100%",
       height: "100%",
       // playsinline: stay inside the page on iPhones instead of going full screen
-      playerVars: { playsinline: 1, rel: 0, origin: window.location.origin },
+      // controls/disablekb: the player has no seek bar or buttons of its own, because each
+      // device would then move only itself. The room's own buttons move everyone.
+      playerVars: { playsinline: 1, rel: 0, controls: 0, disablekb: 1, origin: window.location.origin },
       events: {
         onReady: () => {
           this.isReady = true;
@@ -266,10 +281,12 @@ class YouTubeController {
   pause(delayMs: number): void {
     this.clearStartTimer();
     this.stopDriftChecks();
+    this.isPausePending = true;
     setTimeout(
       () => {
+        this.isPausePending = false;
         // Only pause if the room has not started playing again in the meantime
-        if (this.expectedPosition() === null) this.player?.pauseVideo();
+        if (this.expectedPosition() === null) this.pausePlayer();
       },
       Math.max(0, delayMs)
     );
@@ -281,7 +298,7 @@ class YouTubeController {
     this.stopDriftChecks();
     this.videoId = null;
     this.setSpeed("normal");
-    if (this.isReady) this.player?.pauseVideo();
+    if (this.isReady) this.pausePlayer();
   }
 
   setVolume(volume: number): void {
@@ -314,6 +331,27 @@ class YouTubeController {
     }
   }
 
+  private pausePlayer(): void {
+    this.lastPauseCommandAt = Date.now();
+    this.player?.pauseVideo();
+  }
+
+  /** The player was paused while the room is playing: if the person did it, pause the room. */
+  private handlePausedWhileRoomPlays(videoId: string): void {
+    if (Date.now() - this.lastPlayCommandAt < OWN_COMMAND_ECHO_MS) return;
+    setTimeout(() => {
+      const isStillPaused = this.player?.getPlayerState() === PlayerState.PAUSED;
+      if (!isStillPaused || document.hidden || videoId !== this.videoId || this.expectedPosition() === null) return;
+      if (!this.hooks?.onUserPause(videoId)) this.catchUp();
+    }, USER_PAUSE_CONFIRM_MS);
+  }
+
+  /** The player started while the room is paused: if the person did it, start the room. */
+  private handlePlayingWhileRoomPaused(videoId: string): void {
+    if (this.isPausePending || Date.now() - this.lastPauseCommandAt < OWN_COMMAND_ECHO_MS) return;
+    if (!this.hooks?.onUserPlay(videoId)) this.pausePlayer();
+  }
+
   private setSpeed(speed: PlaybackSpeed): void {
     if (this.speed === speed) return;
     this.speed = speed;
@@ -335,6 +373,12 @@ class YouTubeController {
   private handleStateChange(state: number): void {
     const videoId = this.loadedVideoId;
     if (!videoId) return;
+
+    if (videoId === this.videoId && !this.startTimer) {
+      const isRoomPlaying = this.expectedPosition() !== null;
+      if (state === PlayerState.PAUSED && isRoomPlaying) this.handlePausedWhileRoomPlays(videoId);
+      if (state === PlayerState.PLAYING && !isRoomPlaying) this.handlePlayingWhileRoomPaused(videoId);
+    }
 
     if (state === PlayerState.PLAYING) {
       if (this.isFreshLoad) {

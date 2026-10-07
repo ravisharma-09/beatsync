@@ -122,7 +122,8 @@ Room search uses the Audius API. Audius allows streaming only, not downloading o
 
 ### YouTube and Song Search
 
-- A YouTube queue item is the link `/youtube/{videoId}/{title}.video` (`packages/shared/youtube.ts`). It is never fetched. The client marks it `external` and plays it in the embedded player (`apps/client/src/lib/youtubePlayer.ts`): started at the shared moment, then held to the room clock: a seek when far off (over 1s), a brief speed change (YouTube's 1.25x / 0.75x) when a little off (over 0.1s). The player must stay visible; never extract or hide it.
+- A YouTube queue item is the link `/youtube/{videoId}/{title}.video` (`packages/shared/youtube.ts`). It is never fetched. The client marks it `external` and plays it in the embedded player (`apps/client/src/lib/youtubePlayer.ts`): started at the shared moment, then held to the room clock: a seek when far off (over 1s), a brief speed change (YouTube's 1.25x / 0.75x) when a little off (over 0.1s). The player must stay visible; never extract or hide it. It is created with `controls: 0`: its own buttons would move one device only. A tap on the video is forwarded to the room as play/pause (`onUserPause`/`onUserPlay`).
+- Leaving a room goes through `LeaveRoomButton` (asks first; also catches browser Back). Links inside a room open in a new tab. Do not add plain links to other pages on the room screen.
 - Song search by name runs in the browser against iTunes Search (`lib/songSearch.ts`). `ADD_SONG` asks the server (`lib/songMatch.ts`) for the YouTube video: saved match (30 days) → YouTube Data API within a daily budget → Brave web search. `GET /features` tells the client what the server has set up.
 - `NOTICE` is a server→one-client message shown as a toast.
 

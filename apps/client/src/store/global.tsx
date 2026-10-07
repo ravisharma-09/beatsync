@@ -404,6 +404,9 @@ const downloadBufferFromURL = async (data: { url: string; onProgress?: (loaded: 
   return { audioBuffer };
 };
 
+const canControlPlayback = (state: Pick<GlobalState, "currentUser" | "playbackControlsPermissions">): boolean =>
+  !!state.currentUser?.isAdmin || state.playbackControlsPermissions === PlaybackControlsPermissionsEnum.enum.EVERYONE;
+
 const initializationMutex = new Mutex();
 
 // Selector for canMutate
@@ -647,6 +650,17 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         isCurrentVideo(videoId) && get().isPlaying ? get().getCurrentTrackPosition() : null,
       onDuration: (videoId, seconds) => {
         if (isCurrentVideo(videoId)) set({ duration: seconds });
+      },
+      // Tapping the video itself controls the room, for people who are allowed to
+      onUserPause: (videoId) => {
+        if (!isCurrentVideo(videoId) || !canControlPlayback(get())) return false;
+        get().broadcastPause();
+        return true;
+      },
+      onUserPlay: (videoId) => {
+        if (!isCurrentVideo(videoId) || !canControlPlayback(get())) return false;
+        get().broadcastPlay();
+        return true;
       },
       onEnded: (videoId) => {
         const state = get();
