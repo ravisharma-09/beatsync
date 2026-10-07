@@ -39,6 +39,12 @@ use as an everyday music app:
 
 Two kinds of sync exist, and the music source decides which one is possible.
 
+On top of both, every device runs an **auto re-sync every 10 seconds**: it works out where
+the room is from the server clock, compares that with where it is itself, checks once more a
+second later, and corrects itself if both checks agree (audio tracks: more than 0.04 s off;
+YouTube: more than 0.02 s). Added 7 Oct 2026; covered by unit tests, not yet measured on
+real devices.
+
 - **Tight sync** (phones act as one speaker, a few milliseconds apart) needs the raw audio
   file in the browser. That is possible for uploads and for Audius.
 - **Loose sync** (aiming for about a tenth of a second, never as exact as tight sync) is all

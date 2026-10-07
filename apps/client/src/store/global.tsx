@@ -2,6 +2,17 @@
 import { audioContextManager, isAudioContextPaused } from "@/lib/audioContextManager";
 import { getClientId } from "@/lib/clientId";
 import { getKickBuffer } from "@/components/dashboard/Metronome";
+import {
+  AUDIO_RESYNC_THRESHOLD_SECONDS,
+  AUTO_RESYNC_CONFIRM_MS,
+  AUTO_RESYNC_INTERVAL_MS,
+  EXTERNAL_RESYNC_THRESHOLD_SECONDS,
+  isConfirmedOff,
+  RESYNC_MIN_AGE_MS,
+  resyncError,
+  roomPosition,
+  type PlayAnchor,
+} from "@/lib/autoResync";
 import { IS_DEMO_MODE } from "@/lib/demo";
 import { getApiUrl } from "@/lib/urls";
 import { youtubePlayer } from "@/lib/youtubePlayer";
@@ -407,6 +418,11 @@ const downloadBufferFromURL = async (data: { url: string; onProgress?: (loaded: 
 const canControlPlayback = (state: Pick<GlobalState, "currentUser" | "playbackControlsPermissions">): boolean =>
   !!state.currentUser?.isAdmin || state.playbackControlsPermissions === PlaybackControlsPermissionsEnum.enum.EVERYONE;
 
+/** The room's last play command, kept for auto re-sync (see lib/autoResync.ts). */
+let playAnchor: PlayAnchor | null = null;
+/** How long before the corrected audio starts: enough for the browser to schedule it exactly. */
+const RESYNC_RESTART_LEAD_SECONDS = 0.06;
+
 const initializationMutex = new Mutex();
 
 // Selector for canMutate
@@ -683,6 +699,54 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
       },
     });
 
+    // Auto re-sync: every 10 seconds, compare this device with the room clock and fix it
+    if (!IS_DEMO_MODE) {
+      const measure = (): { error: number; isExternal: boolean; anchor: PlayAnchor } | null => {
+        const state = get();
+        const anchor = playAnchor;
+        if (!anchor || !state.isPlaying || !state.isSynced || state.selectedAudioUrl !== anchor.url) return null;
+        if (Date.now() - anchor.receivedAt < RESYNC_MIN_AGE_MS) return null;
+        const isExternal = isYouTubeQueueUrl(anchor.url);
+        const error = resyncError({
+          anchor,
+          serverNow: epochNow() + state.offsetEstimate + state.nudgeOffsetMs,
+          localPosition: state.getCurrentTrackPosition(),
+          outputLatencySeconds: isExternal ? 0 : getFilteredOutputLatencyMs() / 1000,
+        });
+        return { error, isExternal, anchor };
+      };
+
+      const correct = (isExternal: boolean, anchor: PlayAnchor) => {
+        const state = get();
+        const context = audioContextManager.getContext();
+        const serverNow = epochNow() + state.offsetEstimate + state.nudgeOffsetMs;
+        if (isExternal) {
+          // Move the room clock on this device; the embedded player follows it by itself
+          set({ playbackStartTime: context.currentTime, playbackOffset: roomPosition(anchor, serverNow) });
+          return;
+        }
+        const audioIndex = state.findAudioIndexByUrl(anchor.url);
+        const offset =
+          roomPosition(anchor, serverNow) + RESYNC_RESTART_LEAD_SECONDS + getFilteredOutputLatencyMs() / 1000;
+        if (audioIndex === null || offset >= state.duration - 1) return;
+        void state.playAudio({ offset, when: RESYNC_RESTART_LEAD_SECONDS, audioIndex });
+      };
+
+      setInterval(() => {
+        const first = measure();
+        if (!first) return;
+        const threshold = first.isExternal ? EXTERNAL_RESYNC_THRESHOLD_SECONDS : AUDIO_RESYNC_THRESHOLD_SECONDS;
+        if (Math.abs(first.error) <= threshold) return;
+        setTimeout(() => {
+          const second = measure();
+          if (!second || second.anchor !== first.anchor) return;
+          if (!isConfirmedOff(first.error, second.error, threshold)) return;
+          console.log(`[AutoResync] off by ${(second.error * 1000).toFixed(0)}ms, correcting`);
+          correct(second.isExternal, second.anchor);
+        }, AUTO_RESYNC_CONFIRM_MS);
+      }, AUTO_RESYNC_INTERVAL_MS);
+    }
+
     // In demo mode, stop audio when the app is backgrounded (camera, swipe down, etc.)
     // iOS 26 with audioSession "playback" keeps audio alive in background, which causes
     // desync glitches. Force stop and let the user resync when they return.
@@ -831,8 +895,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         return;
       }
 
-      // Simulate scheduling delay for testing:
-      // await new Promise((resolve) => setTimeout(resolve, 500));
+      playAnchor = {
+        url: data.audioSource,
+        serverTime: data.targetServerTime,
+        trackTime: data.trackTimeSeconds,
+        receivedAt: Date.now(),
+      };
 
       const youtubeVideo = parseYouTubeQueueUrl(data.audioSource);
       if (youtubeVideo) {
