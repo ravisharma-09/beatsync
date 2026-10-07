@@ -274,6 +274,9 @@ export async function connectRemoteDatabase(remote: Client): Promise<void> {
   };
 }
 
+/** Where accounts and playlists survive a restart: "remote" (Turso) or "disk" (the local file). */
+export const accountStorage = (): "remote" | "disk" => (onWrite ? "remote" : "disk");
+
 /** Resolves once every write made so far has been sent. Call before the process exits. */
 export async function flushRemoteWrites(): Promise<void> {
   await sendQueue;
