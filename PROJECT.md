@@ -31,7 +31,7 @@ use as an everyday music app:
 | Playlists | Create, rename, reorder, delete. Add a playlist to a room, save a room's queue as a playlist, or save the current track. Start a room straight from a playlist. | Built, tested in a browser |
 | Rooms that last | Permanent rooms keep their code, queue and uploads. The owner is always admin. | Built, tested in a browser |
 | A legal catalog with tight sync | Audius search. The server never downloads Audius audio: each listener's browser fetches it from Audius, as Audius's terms require. Audio servers that are down or refuse browsers are skipped. | Built; search and audio loading checked against live Audius, full flow tested with a stand-in |
-| Mainstream music | YouTube videos play in YouTube's own visible player. The room clock starts every player at the same moment and seeks a player back when it drifts more than half a second. | Built; confirmed playing a real video on one device (7 Oct 2026). **Sync between two devices not yet checked** |
+| Mainstream music | YouTube videos play in YouTube's own visible player. The room clock starts every player at the same moment. A player that is far off is moved with a seek; one that is a little off (more than 0.1 s) plays slightly faster or slower until it lines up. | Built; confirmed playing a real video on one device (7 Oct 2026). **Sync between two devices not yet checked; the speed-based correction (7 Oct 2026) is covered by unit tests only, not yet by a real player** |
 | Finding chart songs for free | Typing searches Apple's free iTunes Search from the user's browser. Picking a song asks the server to find its YouTube video once; the match is saved for 30 days. Fallback: Brave web search. | Built, unit tested; confirmed with a real YouTube key (7 Oct 2026). Brave fallback not yet run with a real key |
 | A simple screen | New home page (Start a room, Join a room, your rooms, your playlists). Room screen: what is playing on the left, Up next on the right, one player bar. Phone: four tabs. Advanced sound tools sit behind two buttons. | Built, tested in a browser on computer and phone sizes |
 
@@ -41,8 +41,8 @@ Two kinds of sync exist, and the music source decides which one is possible.
 
 - **Tight sync** (phones act as one speaker, a few milliseconds apart) needs the raw audio
   file in the browser. That is possible for uploads and for Audius.
-- **Loose sync** (everyone within about half a second) is all that is possible when another
-  company's player plays the audio. That is the case for YouTube.
+- **Loose sync** (aiming for about a tenth of a second, never as exact as tight sync) is all
+  that is possible when another company's player plays the audio. That is the case for YouTube.
 
 Rules the code follows on purpose. Do not "fix" these:
 

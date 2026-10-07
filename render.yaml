@@ -7,6 +7,9 @@ services:
     name: syncpo-server
     runtime: docker
     plan: free
+    # Closest free region to most listeners so far (India). A region cannot be changed later:
+    # to move an existing service, create a new one. Others: oregon, ohio, virginia, frankfurt.
+    region: singapore
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health

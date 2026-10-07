@@ -3,9 +3,13 @@
  * the room.
  *
  * This is "loose" sync. The uploaded-file engine schedules raw audio to the millisecond;
- * here the only controls are play, pause and seek on a player we do not own, so the goal is
- * everyone within about half a second. The player is told where the room is and, once a
- * second, nudged back with a seek if it has drifted (slow start, buffering, an advert).
+ * here the only controls are play, pause, seek and playback speed on a player we do not
+ * own. The player is told where the room is and then held there in two ways:
+ *
+ * - far off (slow start, buffering, an advert): seek to where the room is, aiming ahead by
+ *   however long seeks have been taking on this device;
+ * - a little off: play slightly faster or slower until it lines up. This is what removes
+ *   the echo between two devices in the same room, which a seek is too coarse to fix.
  *
  * YouTube's terms shape this file: the player must stay visible and unmodified, and the
  * audio is never separated from the video, so nothing here hides, mutes around or
@@ -22,6 +26,8 @@ interface YTPlayer {
   getCurrentTime(): number;
   getDuration(): number;
   getPlayerState(): number;
+  getAvailablePlaybackRates(): number[];
+  setPlaybackRate(rate: number): void;
   setVolume(volume: number): void;
   destroy(): void;
 }
@@ -51,13 +57,25 @@ declare global {
 
 const PlayerState = { ENDED: 0, PLAYING: 1, PAUSED: 2 } as const;
 
-/** Drift beyond this is corrected with a seek. Smaller than this is not audible as "out of sync" across rooms. */
+/** Without speed control (live streams, hidden tabs), drift beyond this is corrected with a seek. */
 export const MAX_DRIFT_SECONDS = 0.5;
-/** A seek takes a moment to land, so aim slightly ahead of where the room is now. */
-const SEEK_LEAD_SECONDS = 0.15;
+/** With speed control: start adjusting beyond START, stop once within STOP (no flip-flopping). */
+export const SPEED_START_DRIFT_SECONDS = 0.1;
+export const SPEED_STOP_DRIFT_SECONDS = 0.03;
+/** Further off than this, changing speed would take too long: seek instead. */
+export const SPEED_MAX_DRIFT_SECONDS = 1;
+/** A seek takes a moment to land, so aim ahead of where the room is now. Adjusted as seeks are measured. */
+export const DEFAULT_SEEK_LEAD_SECONDS = 0.15;
+const MAX_SEEK_LEAD_SECONDS = 2.5;
 /** Never seek more often than this: each seek rebuffers, and seeking in a loop never settles. */
 const MIN_SECONDS_BETWEEN_SEEKS = 3;
-const DRIFT_CHECK_INTERVAL_MS = 1000;
+/** The player's reported time is only trusted this long after a seek. */
+const SEEK_SETTLE_MS = 600;
+/**
+ * The player reports its position in steps (a few times a second), so it is read often and
+ * only used at the moment the value changes, when it is fresh.
+ */
+const DRIFT_CHECK_INTERVAL_MS = 50;
 /** After telling the player to play, give it this long before treating "paused" as stuck. */
 const RESUME_GRACE_MS = 2500;
 
@@ -69,19 +87,52 @@ export interface YouTubeRoomHooks {
   onError: (videoId: string, message: string) => void;
 }
 
+export type PlaybackSpeed = "normal" | "faster" | "slower";
+
+export interface DriftCorrection {
+  /** Position to seek to, or null for no seek. */
+  seekTo: number | null;
+  speed: PlaybackSpeed;
+}
+
 /**
  * Decides what to do about drift. Kept pure so the rule can be tested without a player.
- * Returns the position to seek to, or null to leave the player alone.
  */
 export function planDriftCorrection(input: {
   expected: number;
   actual: number;
   secondsSinceLastSeek: number;
-}): number | null {
-  if (Math.abs(input.actual - input.expected) <= MAX_DRIFT_SECONDS) return null;
-  if (input.secondsSinceLastSeek < MIN_SECONDS_BETWEEN_SEEKS) return null;
-  return Math.max(0, input.expected + SEEK_LEAD_SECONDS);
+  /** Whether the player can be sped up and slowed down right now. */
+  canAdjustSpeed?: boolean;
+  /** Whether it is currently playing faster or slower than normal. */
+  isAdjustingSpeed?: boolean;
+  seekLeadSeconds?: number;
+}): DriftCorrection {
+  const drift = input.actual - input.expected; // positive: ahead of the room
+  const size = Math.abs(drift);
+  const seekLimit = input.canAdjustSpeed ? SPEED_MAX_DRIFT_SECONDS : MAX_DRIFT_SECONDS;
+
+  if (size > seekLimit) {
+    if (input.secondsSinceLastSeek < MIN_SECONDS_BETWEEN_SEEKS) return { seekTo: null, speed: "normal" };
+    const lead = input.seekLeadSeconds ?? DEFAULT_SEEK_LEAD_SECONDS;
+    return { seekTo: Math.max(0, input.expected + lead), speed: "normal" };
+  }
+  if (!input.canAdjustSpeed) return { seekTo: null, speed: "normal" };
+
+  const threshold = input.isAdjustingSpeed ? SPEED_STOP_DRIFT_SECONDS : SPEED_START_DRIFT_SECONDS;
+  if (size <= threshold) return { seekTo: null, speed: "normal" };
+  return { seekTo: null, speed: drift < 0 ? "faster" : "slower" };
 }
+
+/**
+ * How far to aim ahead on the next seek, given how the last one landed.
+ * `driftAfterSeek` is player minus room: negative means the seek landed late.
+ */
+export function learnSeekLead(currentLead: number, driftAfterSeek: number): number {
+  return Math.min(MAX_SEEK_LEAD_SECONDS, Math.max(0, currentLead - driftAfterSeek * 0.6));
+}
+
+const median = (values: number[]): number => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
 let apiPromise: Promise<YTNamespace> | null = null;
 
@@ -130,6 +181,14 @@ class YouTubeController {
   private driftTimer: ReturnType<typeof setInterval> | null = null;
   private lastSeekAt = 0;
   private lastPlayCommandAt = 0;
+  private seekLead = DEFAULT_SEEK_LEAD_SECONDS;
+  /** A seek was sent and how it landed has not been measured yet. */
+  private isSeekUnmeasured = false;
+  /** The video was just loaded: the first correction may happen as soon as it plays. */
+  private isFreshLoad = false;
+  private speed: PlaybackSpeed = "normal";
+  private lastReportedTime = -1;
+  private recentDrifts: number[] = [];
   private endedFor: string | null = null;
   private readonly durations = new Map<string, number>();
 
@@ -221,6 +280,7 @@ class YouTubeController {
     this.clearStartTimer();
     this.stopDriftChecks();
     this.videoId = null;
+    this.setSpeed("normal");
     if (this.isReady) this.player?.pauseVideo();
   }
 
@@ -241,13 +301,35 @@ class YouTubeController {
 
     this.lastPlayCommandAt = Date.now();
     this.lastSeekAt = Date.now();
+    this.recentDrifts = [];
+    this.isSeekUnmeasured = false;
+    this.setSpeed("normal");
     if (this.loadedVideoId !== this.videoId) {
       this.loadedVideoId = this.videoId;
+      this.isFreshLoad = true;
       this.player.loadVideoById({ videoId: this.videoId, startSeconds: expected });
     } else {
-      this.player.seekTo(expected, true);
+      this.player.seekTo(Math.max(0, expected + this.seekLead), true);
       this.player.playVideo();
     }
+  }
+
+  private setSpeed(speed: PlaybackSpeed): void {
+    if (this.speed === speed) return;
+    this.speed = speed;
+    if (!this.player || !this.isReady) return;
+    const rates = this.player.getAvailablePlaybackRates();
+    const faster = Math.min(...rates.filter((rate) => rate > 1));
+    const slower = Math.max(...rates.filter((rate) => rate < 1));
+    const rate = speed === "faster" ? faster : speed === "slower" ? slower : 1;
+    this.player.setPlaybackRate(Number.isFinite(rate) ? rate : 1);
+  }
+
+  /** Speed can be adjusted when the video offers it and the tab is visible (hidden tabs run timers too rarely). */
+  private canAdjustSpeed(): boolean {
+    if (!this.player || document.hidden) return false;
+    const rates = this.player.getAvailablePlaybackRates();
+    return rates.some((rate) => rate > 1) && rates.some((rate) => rate < 1);
   }
 
   private handleStateChange(state: number): void {
@@ -255,6 +337,11 @@ class YouTubeController {
     if (!videoId) return;
 
     if (state === PlayerState.PLAYING) {
+      if (this.isFreshLoad) {
+        // Loading took an unknown time, so the player starts behind: let it be corrected at once
+        this.isFreshLoad = false;
+        this.lastSeekAt = 0;
+      }
       const duration = this.player?.getDuration() ?? 0;
       if (duration > 0 && this.durations.get(videoId) !== duration) {
         this.durations.set(videoId, duration);
@@ -295,16 +382,42 @@ class YouTubeController {
       return;
     }
     // Buffering, adverts and the moment before first play: wait, then correct once it plays
-    if (state !== PlayerState.PLAYING) return;
+    if (state !== PlayerState.PLAYING) {
+      this.recentDrifts = [];
+      return;
+    }
 
-    const target = planDriftCorrection({
+    const actual = this.player.getCurrentTime();
+    if (actual === this.lastReportedTime) return; // not a fresh reading
+    this.lastReportedTime = actual;
+    if (Date.now() - this.lastSeekAt < SEEK_SETTLE_MS) return;
+
+    const drift = actual - expected;
+    if (this.isSeekUnmeasured) {
+      this.isSeekUnmeasured = false;
+      this.seekLead = learnSeekLead(this.seekLead, drift);
+    }
+    this.recentDrifts = [...this.recentDrifts, drift].slice(-3);
+
+    const isAdjustingSpeed = this.speed !== "normal";
+    // Starting a correction needs agreement between readings; stopping one must be prompt
+    if (!isAdjustingSpeed && this.recentDrifts.length < 3) return;
+    const steadyDrift = isAdjustingSpeed ? drift : median(this.recentDrifts);
+
+    const plan = planDriftCorrection({
       expected,
-      actual: this.player.getCurrentTime(),
+      actual: expected + steadyDrift,
       secondsSinceLastSeek: (Date.now() - this.lastSeekAt) / 1000,
+      canAdjustSpeed: this.canAdjustSpeed(),
+      isAdjustingSpeed,
+      seekLeadSeconds: this.seekLead,
     });
-    if (target !== null) {
+    this.setSpeed(plan.speed);
+    if (plan.seekTo !== null) {
       this.lastSeekAt = Date.now();
-      this.player.seekTo(target, true);
+      this.isSeekUnmeasured = true;
+      this.recentDrifts = [];
+      this.player.seekTo(plan.seekTo, true);
     }
   }
 
