@@ -104,6 +104,7 @@ Grid-based positioning system where clients are placed on a grid. A "listening s
 
 Persistent data lives in SQLite (`bun:sqlite`, schema and migrations in `apps/server/src/db/index.ts`, queries in `db/repo.ts`). Live room state stays in memory in `RoomManager`.
 
+- **Hosts without a disk**: with `TURSO_DATABASE_URL` set, the local SQLite database is an in-memory working copy. `connectRemoteDatabase()` in `db/index.ts` loads every table from Turso at startup and mirrors each write (and each transaction as one batch) to it in order. All code must write through the exported `db` (never a private `Database`), or the write is not mirrored. New tables must be added to `TABLES` there.
 - **Auth** (`apps/server/src/auth/`): email + password (`Bun.password`), opaque session tokens stored hashed, sent as `Authorization: Bearer`. The WebSocket takes the same token as a `token` query param; `WSData.userId` is set when it is valid.
 - **HTTP routes** (`apps/server/src/routes/account.ts`): `/auth/*`, `/library/*`, `/playlists/*`, `/rooms/*`. Schemas are in `packages/shared/types/account.ts`.
 - **Library files** are stored under `user-{userId}/`, never under `room-{roomId}/`, so room cleanup and orphan cleanup cannot delete them.
@@ -148,6 +149,9 @@ YOUTUBE_API_KEY=                   # optional: pick chart songs by name (about 1
 BRAVE_SEARCH_API_KEY=              # optional: fallback when the YouTube search limit is used up
 AUDIUS_API_KEY=                    # bearer token from api.audius.co/plans → Create API Key (free: 10 req/s, 500k/month)
 # Optional
+TURSO_DATABASE_URL=                # with TURSO_AUTH_TOKEN: keep accounts in Turso (for hosts without a disk)
+TURSO_AUTH_TOKEN=
+PORT=8080                          # hosts such as Render set this
 AUDIUS_APP_NAME=beatsync           # name sent to Audius with each request
 DATABASE_PATH=./data/beatsync.db   # SQLite file for accounts, playlists and permanent rooms
 S3_FORCE_PATH_STYLE=true           # only for local S3 stand-ins such as MinIO

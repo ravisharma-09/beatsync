@@ -1,27 +1,37 @@
-import { Database } from "bun:sqlite";
+import type { Client, InStatement } from "@libsql/client";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
  * Persistent storage for accounts, the per-user library, playlists and permanent rooms.
  *
- * SQLite keeps the server a single process with no external services. Live room state
- * (clients, playback position, chat) intentionally stays in memory in RoomManager.
+ * All reads and writes go to a local SQLite database, so the rest of the server stays
+ * simple and synchronous. Live room state (clients, playback position, chat) is not
+ * stored here; it stays in memory in RoomManager.
  *
- * Set DATABASE_PATH to choose the file. Tests use an in-memory database.
+ * Where the data survives depends on the host:
+ *
+ * - With a disk (your own machine, a VPS, a host with a volume): the SQLite file at
+ *   DATABASE_PATH is the storage. Nothing else is needed.
+ * - Without a disk (free hosts that wipe files on every restart): set TURSO_DATABASE_URL
+ *   and TURSO_AUTH_TOKEN. The local database is then only a working copy: it is filled
+ *   from Turso at startup, and every write is also sent to Turso (see connectRemoteDatabase).
  */
 const isTest = process.env.NODE_ENV === "test";
-const DATABASE_PATH = process.env.DATABASE_PATH ?? (isTest ? ":memory:" : "./data/beatsync.db");
+const usesRemote = !isTest && !!process.env.TURSO_DATABASE_URL;
+// With a remote copy, never start from a stale local file: the remote one is the truth
+const DATABASE_PATH = usesRemote || isTest ? ":memory:" : (process.env.DATABASE_PATH ?? "./data/beatsync.db");
 
 if (DATABASE_PATH !== ":memory:") {
   mkdirSync(dirname(DATABASE_PATH), { recursive: true });
 }
 
-export const db = new Database(DATABASE_PATH, { create: true, strict: true });
+const local = new Database(DATABASE_PATH, { create: true, strict: true });
 
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA foreign_keys = ON;");
-db.run("PRAGMA busy_timeout = 5000;");
+local.run("PRAGMA journal_mode = WAL;");
+local.run("PRAGMA foreign_keys = ON;");
+local.run("PRAGMA busy_timeout = 5000;");
 
 const MIGRATIONS: string[] = [
   `
@@ -101,15 +111,184 @@ const MIGRATIONS: string[] = [
   `,
 ];
 
-function migrate() {
-  const { user_version: current } = db.query<{ user_version: number }, []>("PRAGMA user_version").get()!;
+function migrateLocal() {
+  const { user_version: current } = local.query<{ user_version: number }, []>("PRAGMA user_version").get()!;
   for (let version = current; version < MIGRATIONS.length; version++) {
-    db.transaction(() => {
-      db.run(MIGRATIONS[version]);
-      db.run(`PRAGMA user_version = ${version + 1}`);
+    local.transaction(() => {
+      local.run(MIGRATIONS[version]);
+      local.run(`PRAGMA user_version = ${version + 1}`);
     })();
     console.log(`🗄️  Database migrated to version ${version + 1}`);
   }
 }
 
-migrate();
+migrateLocal();
+
+// ── Write mirroring ─────────────────────────────────────────────────────────
+
+const isWrite = (sql: string) => /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql);
+
+type WriteListener = (statements: InStatement[]) => void;
+let onWrite: WriteListener | null = null;
+/** Statements of the local transaction in progress, sent together once it commits. */
+let openTransaction: InStatement[] | null = null;
+
+function recordWrite(sql: string, params: unknown[]): void {
+  if (!onWrite) return;
+  // Named parameters arrive as one plain object, positional ones as a list
+  const [first] = params;
+  const isNamed = params.length === 1 && typeof first === "object" && first !== null && !ArrayBuffer.isView(first);
+  const statement = { sql, args: isNamed ? first : params } as InStatement;
+  if (openTransaction) openTransaction.push(statement);
+  else onWrite([statement]);
+}
+
+/**
+ * The database handle used by the rest of the server. It behaves like the local SQLite
+ * database and, when a remote copy is connected, reports every write so it can be mirrored.
+ */
+export const db = {
+  query<Row, Params extends SQLQueryBindings | SQLQueryBindings[]>(sql: string) {
+    const statement = local.query<Row, Params>(sql);
+    if (!isWrite(sql)) return statement;
+
+    return new Proxy(statement, {
+      get(target, property) {
+        if (property === "run") {
+          return (...params: unknown[]) => {
+            const result = (target.run as (...args: unknown[]) => unknown)(...params);
+            recordWrite(sql, params);
+            return result;
+          };
+        }
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+  },
+
+  run(sql: string) {
+    const result = local.run(sql);
+    if (isWrite(sql)) recordWrite(sql, []);
+    return result;
+  },
+
+  /** Like bun:sqlite's transaction(): all-or-nothing locally, and mirrored as one unit. */
+  transaction<T>(work: () => T): () => T {
+    return () => {
+      const isOutermost = openTransaction === null;
+      if (isOutermost) openTransaction = [];
+      try {
+        const result = local.transaction(work)();
+        if (isOutermost) {
+          const statements = openTransaction!;
+          openTransaction = null;
+          if (statements.length > 0) onWrite?.(statements);
+        }
+        return result;
+      } catch (error) {
+        if (isOutermost) openTransaction = null; // rolled back locally: nothing to mirror
+        throw error;
+      }
+    };
+  },
+};
+
+// ── Remote copy (Turso) ─────────────────────────────────────────────────────
+
+/** Parents before children, so rows can be copied in with foreign keys on. */
+const TABLES = [
+  "users",
+  "sessions",
+  "tracks",
+  "playlists",
+  "playlist_tracks",
+  "rooms",
+  "youtube_matches",
+  "daily_counters",
+] as const;
+
+const ORPHAN_CLEANUPS = [
+  "DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users)",
+  "DELETE FROM tracks WHERE user_id NOT IN (SELECT id FROM users)",
+  "DELETE FROM playlists WHERE user_id NOT IN (SELECT id FROM users)",
+  "DELETE FROM rooms WHERE owner_id NOT IN (SELECT id FROM users)",
+  "DELETE FROM playlist_tracks WHERE playlist_id NOT IN (SELECT id FROM playlists) OR track_id NOT IN (SELECT id FROM tracks)",
+];
+
+const MAX_SEND_ATTEMPTS = 4;
+let sendQueue: Promise<void> = Promise.resolve();
+
+async function sendWithRetry(remote: Client, statements: InStatement[]): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await remote.batch(statements, "write");
+      return;
+    } catch (error) {
+      if (attempt >= MAX_SEND_ATTEMPTS) {
+        // The change stays in this process's working copy but will be gone after a restart
+        console.error(`❌ Could not save ${statements.length} change(s) to the remote database:`, error);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
+}
+
+/**
+ * Makes `remote` the durable copy of the database:
+ * 1. brings its tables up to date, 2. loads everything it holds into the local working
+ * copy, 3. from then on sends every local write to it, in order.
+ */
+export async function connectRemoteDatabase(remote: Client): Promise<void> {
+  await remote.execute("CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)");
+  const applied = await remote.execute("SELECT COALESCE(MAX(version), 0) AS version FROM _schema_version");
+  for (let version = Number(applied.rows[0].version); version < MIGRATIONS.length; version++) {
+    await remote.executeMultiple(MIGRATIONS[version]);
+    await remote.execute({ sql: "INSERT INTO _schema_version (version) VALUES (?)", args: [version + 1] });
+    console.log(`🗄️  Remote database migrated to version ${version + 1}`);
+  }
+
+  // Load with foreign-key checks off, then drop rows whose parent is gone. The remote
+  // database may not cascade deletes the way the local one does, and one such leftover
+  // row must not stop the server from starting.
+  local.run("PRAGMA foreign_keys = OFF;");
+  let total = 0;
+  for (const table of TABLES) {
+    const { columns, rows } = await remote.execute(`SELECT * FROM ${table}`);
+    if (rows.length === 0) continue;
+    const insert = local.query(
+      `INSERT OR REPLACE INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`
+    );
+    local.transaction(() => {
+      for (const row of rows) insert.run(...(columns.map((_, index) => row[index]) as SQLQueryBindings[]));
+    })();
+    total += rows.length;
+  }
+  for (const cleanup of ORPHAN_CLEANUPS) local.run(cleanup);
+  local.run("PRAGMA foreign_keys = ON;");
+  console.log(`🗄️  Loaded ${total} row(s) from the remote database`);
+
+  onWrite = (statements) => {
+    sendQueue = sendQueue.then(() => sendWithRetry(remote, statements));
+  };
+}
+
+/** Resolves once every write made so far has been sent. Call before the process exits. */
+export async function flushRemoteWrites(): Promise<void> {
+  await sendQueue;
+}
+
+/** For tests: stop mirroring and forget the local working copy's rows. */
+export function disconnectRemoteDatabase(): void {
+  onWrite = null;
+  for (const table of [...TABLES].reverse()) local.run(`DELETE FROM ${table}`);
+}
+
+/** Connects to Turso when it is configured. Call once at startup, before serving requests. */
+export async function initDatabase(): Promise<void> {
+  if (!usesRemote) return;
+  const { createClient } = await import("@libsql/client/web");
+  const remote = createClient({ url: process.env.TURSO_DATABASE_URL!, authToken: process.env.TURSO_AUTH_TOKEN });
+  await connectRemoteDatabase(remote);
+}

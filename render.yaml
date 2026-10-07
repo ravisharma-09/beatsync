@@ -1,0 +1,35 @@
+# Render blueprint for the Syncpo server (free plan).
+#
+# Free Render services have no disk and sleep after 15 minutes without traffic, so
+# accounts and playlists are kept in Turso (TURSO_* below). See DEPLOY.md.
+services:
+  - type: web
+    name: syncpo-server
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: PUBLIC_WEB_ORIGIN
+        sync: false
+      - key: AUDIUS_API_KEY
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: BRAVE_SEARCH_API_KEY
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_PUBLIC_URL
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false

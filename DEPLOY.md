@@ -5,12 +5,29 @@ Syncpo has two parts that are deployed separately:
 | Part | What it is | Needs |
 |---|---|---|
 | **Web app** (`apps/client`) | Next.js site | Any Next.js host. Vercel's free plan works. |
-| **Server** (`apps/server`) | One Bun process: HTTP + WebSocket | A host that keeps a process running, allows WebSockets, and has a **persistent disk** for the database file. |
+| **Server** (`apps/server`) | One Bun process: HTTP + WebSocket | A host that keeps a process running and allows WebSockets. Accounts need either a **persistent disk** or a free **Turso** database. |
 
-A "serverless" or sleeping host does not fit the server: rooms live in its memory and
-phones hold a WebSocket open to it.
+## The free setup: Vercel + Render + Turso
 
-## 1. Server
+No card is needed for Vercel or Turso. What you give up: Render's free server sleeps after
+15 minutes without visitors and takes about a minute to wake, and rooms that were open are
+gone after a sleep. Accounts, playlists and permanent rooms are safe in Turso.
+
+1. **Turso** (turso.tech): create a database. Copy its URL (`libsql://…`) and create an
+   auth token for it.
+2. **Render** (render.com): New → Blueprint → pick this repo. `render.yaml` describes the
+   server. Fill in `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`, plus the keys you have
+   (table below). When it is live, open `https://<your-service>.onrender.com/health`.
+3. **Vercel** (vercel.com): import this repo and set
+   `NEXT_PUBLIC_API_URL=https://<your-service>.onrender.com` and
+   `NEXT_PUBLIC_WS_URL=wss://<your-service>.onrender.com/ws`, then deploy.
+4. Back on Render, set `PUBLIC_WEB_ORIGIN` to the Vercel address.
+
+How Turso is used: the server works on a local copy of the database for speed. At startup
+it loads everything from Turso, and every change is also written to Turso right away. If
+the server is killed in the same second as a change, that one change can be lost.
+
+## 1. Server on a host with a disk
 
 The repo's `Dockerfile` builds the server. On any Docker host:
 

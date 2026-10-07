@@ -1,6 +1,7 @@
 import { ADMIN_SECRET, IS_DEMO_MODE } from "@/demo";
 import { BackupManager } from "@/managers/BackupManager";
 import { deleteExpiredSessions } from "@/auth";
+import { flushRemoteWrites, initDatabase } from "@/db";
 import { handleAccountRoutes } from "@/routes/account";
 import { AUDIUS_STREAM_PATH_PREFIX } from "@/lib/audius";
 import { validateR2Config } from "@/lib/r2";
@@ -18,10 +19,14 @@ import { handleClose, handleMessage, handleOpen } from "@/routes/websocketHandle
 import { corsHeaders, errorResponse } from "@/utils/responses";
 import type { WSData } from "@/utils/websocket";
 
+// Load accounts, playlists and rooms from the remote database, if one is configured
+await initDatabase();
+
 // Bun.serve with WebSocket support
 const server = Bun.serve<WSData>({
   hostname: "0.0.0.0",
-  port: 8080,
+  // Hosts such as Render tell the app which port to use
+  port: Number(process.env.PORT ?? 8080),
   async fetch(req, server) {
     const start = performance.now();
     const url = new URL(req.url);
@@ -169,6 +174,7 @@ const shutdown = async () => {
   if (!IS_DEMO_MODE && hasStorage) {
     await BackupManager.backupState(); // Save state
   }
+  await flushRemoteWrites(); // Make sure the last account and playlist changes are stored
 
   process.exit(0);
 };

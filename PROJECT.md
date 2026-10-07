@@ -80,6 +80,7 @@ Without the last two, pasting a YouTube link still works; only search by song na
   the video's own title so this is visible.
 - Using iTunes Search mainly to find songs that then play on YouTube is a grey area in
   Apple's terms. Each result links to Apple Music. MusicBrainz is the fully open alternative.
+- The free hosting setup (Render + Turso) has not been run live yet. The Turso part is tested against a local libSQL database, not the hosted service.
 - No password reset or email verification.
 - Upload size is not limited by the server, only the number of tracks per user.
 - Deleting a library track does not remove it from queues that already contain it.
