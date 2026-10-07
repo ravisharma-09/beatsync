@@ -1,3 +1,4 @@
+import { noteServerNotice } from "@/lib/addWatch";
 import { toast } from "sonner";
 import { useChatStore } from "@/store/chat";
 import { useGlobalStore } from "@/store/global";
@@ -150,6 +151,7 @@ export const WS_RESPONSE_REGISTRY: WebsocketResponseRegistry = {
 
   [ServerActionEnum.enum.NOTICE]: {
     handle: ({ response }) => {
+      noteServerNotice();
       if (response.level === "error") toast.error(response.message);
       else toast.info(response.message);
     },

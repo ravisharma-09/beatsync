@@ -1,7 +1,13 @@
-import type { WSRequestType } from "@beatsync/shared";
+import type { WSRequestType, WSUnicastType } from "@beatsync/shared";
 import type { ServerWebSocket } from "bun";
 import type { BunServer, WSData } from "@/utils/websocket";
 import { WS_REGISTRY } from "@/websocket/registry";
+
+const ADD_TO_QUEUE_ACTIONS: ReadonlySet<WSRequestType["type"]> = new Set([
+  "ADD_SONG",
+  "ADD_YOUTUBE_VIDEO",
+  "STREAM_MUSIC",
+]);
 
 /**
  * Type-safe message dispatcher
@@ -46,5 +52,19 @@ export async function dispatchMessage({
     });
   } catch (error) {
     console.error(`[${ws.data.roomId}] Websocket handler ${handler.description} threw error:"`, error);
+    // Someone pressed "add" and is waiting: tell them, instead of leaving the screen unchanged
+    if (ADD_TO_QUEUE_ACTIONS.has(message.type)) {
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "NOTICE",
+            level: "error",
+            message: "That could not be added. Try again in a moment.",
+          } satisfies WSUnicastType)
+        );
+      } catch {
+        // The connection is gone; nothing to tell
+      }
+    }
   }
 }

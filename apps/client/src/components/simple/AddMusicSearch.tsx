@@ -3,6 +3,7 @@ import { queryKeys } from "@/components/account/shared";
 import { addTracksToRoom, fetchTracks } from "@/lib/accountApi";
 import { fetchFeatures } from "@/lib/api";
 import { searchSongs } from "@/lib/songSearch";
+import { watchAdd } from "@/lib/addWatch";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { useCanMutate, useGlobalStore } from "@/store/global";
@@ -153,10 +154,29 @@ export const AddMusicSearch = ({ variant, className }: AddMusicSearchProps) => {
   }, [variant, isOpen]);
 
   const markAdded = (key: string) => setAdded((current) => new Set(current).add(key));
+  const unmarkAdded = (key: string) =>
+    setAdded((current) => {
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+
+  /** Sends an add request, shows the tick, and takes it back if the server never answers. */
+  const sendAdd = (key: string, request: Parameters<typeof sendWSRequest>[0]["request"]) => {
+    if (!send(request)) return;
+    markAdded(key);
+    watchAdd(
+      () => useGlobalStore.getState().audioSources.length,
+      () => {
+        unmarkAdded(key);
+        toast.error("That was not added: the room did not answer. Try again.");
+      }
+    );
+  };
 
   const send = (request: Parameters<typeof sendWSRequest>[0]["request"]): boolean => {
-    if (!socket) {
-      toast.error("Not connected to the room yet");
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      toast.error("Reconnecting to the room. Try again in a moment.");
       return false;
     }
     sendWSRequest({ ws: socket, request });
@@ -310,9 +330,11 @@ export const AddMusicSearch = ({ variant, className }: AddMusicSearchProps) => {
                     length={formatLength(song.durationSeconds)}
                     isAdded={added.has(`song:${song.id}`)}
                     onAdd={() => {
-                      if (send({ type: ClientActionEnum.enum.ADD_SONG, title: song.title, artist: song.artist })) {
-                        markAdded(`song:${song.id}`);
-                      }
+                      sendAdd(`song:${song.id}`, {
+                        type: ClientActionEnum.enum.ADD_SONG,
+                        title: song.title,
+                        artist: song.artist,
+                      });
                     }}
                   />
                 ))}
@@ -345,9 +367,11 @@ export const AddMusicSearch = ({ variant, className }: AddMusicSearchProps) => {
                     isAdded={added.has(`audius:${track.id}`)}
                     onAdd={() => {
                       const trackName = `${track.performer.name} - ${track.title}`.trim();
-                      if (send({ type: ClientActionEnum.enum.STREAM_MUSIC, trackId: track.id, trackName })) {
-                        markAdded(`audius:${track.id}`);
-                      }
+                      sendAdd(`audius:${track.id}`, {
+                        type: ClientActionEnum.enum.STREAM_MUSIC,
+                        trackId: track.id,
+                        trackName,
+                      });
                     }}
                   />
                 ))}
